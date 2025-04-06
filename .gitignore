@@ -1,0 +1,20 @@
+# Ignorar archivos y carpetas relacionados con el instalador
+installer/
+*.iss
+*.exe
+
+# Ignorar el script para construir el instalador
+build_installer.bat
+
+# Ignorar archivos generados por PyInstaller
+build/
+dist/
+*.spec
+
+# Ignorar archivos temporales y de sistema
+*.pyc
+__pycache__/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

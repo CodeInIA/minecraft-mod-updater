@@ -18,7 +18,14 @@ from rich.layout import Layout
 from rich.align import Align
 
 # Constants
-CONFIG_FILE = "mod_updater_config.json"
+CONFIG_FILE = os.path.join(os.getenv("APPDATA"), "minecraft_mod_updater", "mod_updater_config.json")
+
+# Asegúrate de crear el directorio si no existe
+os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+
+# Ruta por defecto para el perfil "client"
+DEFAULT_MINECRAFT_MODS = os.path.join(os.getenv("APPDATA"), ".minecraft", "mods")
+
 MODRINTH_API_URL = "https://api.modrinth.com/v2"
 HASH_ALGORITHM = "sha512"
 VERSION_FILE_ENDPOINT = f"{MODRINTH_API_URL}/version_files"
@@ -29,7 +36,7 @@ DEFAULT_GAME_VERSIONS = ["1.21.5"]
 # Configuration data structure
 default_config = {
     "mod_folders": {
-        "client": "mods-client",
+        "client": DEFAULT_MINECRAFT_MODS,
         "server": "mods-server"
     },
     "current_folder": "client",
@@ -407,13 +414,21 @@ def setup_config() -> Dict:
                 adding_profiles = False
                 continue
         
-        # Profile name
+        # Profile name - Primer perfil es "client" por defecto
         if profile_count == 0:
-            profile_name = "client"  # Default first profile
+            profile_name = Prompt.ask(
+                "\n[cyan]Enter profile name[/cyan] (e.g. client, server, modpack1)",
+                default="client"  # Primer perfil tiene nombre por defecto "client"
+            )
+        elif profile_count == 1:
+            profile_name = Prompt.ask(
+                "\n[cyan]Enter profile name[/cyan] (e.g. client, server, modpack1)",
+                default="server"  # Segundo perfil tiene nombre por defecto "server"
+            )
         else:
             profile_name = Prompt.ask(
                 "\n[cyan]Enter profile name[/cyan] (e.g. client, server, modpack1)",
-                default=f"profile{profile_count+1}"
+                default=f"profile{profile_count+1}"  # Los demás perfiles no tienen nombre por defecto
             )
         
         # Check for duplicate names
@@ -421,8 +436,17 @@ def setup_config() -> Dict:
             console.print(f"[yellow]Profile '{profile_name}' already exists. Please use a different name.[/yellow]")
             continue
             
-        # Mod folder path for this profile
-        default_path = mod_folders.get(profile_name, f"mods-{profile_name}")
+        # Mod folder path for this profile - Solo el primer perfil "client" tiene ruta por defecto
+        if profile_count == 0 and profile_name.lower() == "client":
+            # Ruta por defecto para el perfil "client" usando la carpeta .minecraft/mods del usuario
+            default_path = DEFAULT_MINECRAFT_MODS
+        elif profile_count == 1 and profile_name.lower() == "server":
+            # El segundo perfil no tiene ruta por defecto específica
+            default_path = mod_folders.get(profile_name, f"mods-{profile_name}")
+        else:
+            # Los demás perfiles no tienen ruta por defecto
+            default_path = mod_folders.get(profile_name, f"mods-{profile_name}")
+            
         folder_path = Prompt.ask(
             f"[cyan]Enter mod folder path for profile '{profile_name}'[/cyan] (relative or absolute path)",
             default=default_path

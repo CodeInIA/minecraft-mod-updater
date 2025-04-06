@@ -1,6 +1,6 @@
 # 🧩 Minecraft Mod Updater
 
-![Mod Updater Logo](updater-logo.png)
+<img src="updater-logo.png" alt="Mod Updater Logo" width="150" />
 
 A powerful Python tool to automatically keep your Minecraft mods up to date with the latest versions from Modrinth.
 
@@ -104,3 +104,47 @@ This project is released under the MIT License.
 ---
 
 Created with ❤️ for the Minecraft modding community
+
+# Minecraft Mod Updater
+
+Minecraft Mod Updater es una herramienta diseñada para facilitar la actualización automática de mods en Minecraft. Con esta herramienta, puedes mantener tus mods actualizados sin complicaciones.
+
+## Características
+- Actualización automática de mods.
+- Configuración sencilla.
+- Compatible con múltiples versiones de Minecraft.
+
+## Instalación
+
+1. Descarga la última versión del instalador desde la sección [Releases](https://github.com/tu-usuario/minecraft-mod-updater/releases) en GitHub.
+2. Ejecuta el instalador `MinecraftModUpdater_Setup.exe` y sigue las instrucciones en pantalla.
+
+## Uso
+
+1. Abre la aplicación Minecraft Mod Updater.
+2. Configura la carpeta de mods y las opciones deseadas.
+3. Haz clic en "Actualizar mods" para comenzar.
+
+## Requisitos
+- Windows 7 o superior.
+- Python 3.8 o superior (solo para desarrolladores).
+
+## Contribuir
+Si deseas contribuir al proyecto:
+
+1. Clona este repositorio:
+   ```bash
+   git clone https://github.com/tu-usuario/minecraft-mod-updater.git
+   ```
+2. Instala las dependencias necesarias:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Realiza tus cambios y envía un pull request.
+
+## Licencia
+Este proyecto está licenciado bajo la [MIT License](LICENSE).
+
+---
+
+¡Gracias por usar Minecraft Mod Updater! Si tienes alguna pregunta o problema, no dudes en abrir un [issue](https://github.com/tu-usuario/minecraft-mod-updater/issues).
