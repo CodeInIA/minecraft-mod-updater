@@ -18,16 +18,16 @@ from rich.layout import Layout
 from rich.align import Align
 from rich.live import Live
 
-# Palabra clave para cancelar la configuración
+# Keyword to cancel the configuration
 CANCEL_KEYWORD = "cancel"
 
 # Constants
 CONFIG_FILE = os.path.join(os.getenv("APPDATA"), "minecraft_mod_updater", "mod_updater_config.json")
 
-# Asegúrate de crear el directorio si no existe
+# Ensure the directory exists
 os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
 
-# Ruta por defecto para el perfil "client"
+# Default path for the "client" profile
 DEFAULT_MINECRAFT_MODS = os.path.join(os.getenv("APPDATA"), ".minecraft", "mods")
 
 MODRINTH_API_URL = "https://api.modrinth.com/v2"
@@ -188,7 +188,7 @@ def compare_versions(current_version: str, latest_version: str) -> bool:
         current_clean = re.sub(r'[^0-9.]', '', current_version.split('-')[0])
         latest_clean = re.sub(r'[^0-9.]', '', latest_version.split('-')[0])
         
-        # Asegurar que haya al menos una versión válida
+        # Ensure there is at least one valid version
         if not current_clean or not latest_clean:
             return current_version != latest_version
             
@@ -342,14 +342,14 @@ def print_update_summary(current_versions: Dict, latest_versions: Dict, hash_to_
         if file_hash not in current_versions:
             table.add_row(mod_name, "Unknown", "Unknown", "❓ Not found in Modrinth")
             continue
-            
+        
         current_version_info = current_versions[file_hash]
         current_version = current_version_info.get("version_number", "Unknown")
         
         if file_hash not in latest_versions:
             table.add_row(mod_name, current_version, "Unknown", "❓ No update info")
             continue
-            
+        
         latest_version_info = latest_versions[file_hash]
         latest_version = latest_version_info.get("version_number", "Unknown")
         
@@ -383,9 +383,9 @@ def setup_config() -> Dict:
         padding=(1, 2)
     ))
     
-    # Mostrar indicación de que se puede cancelar con la palabra clave
+    # Show indication that configuration can be canceled with the keyword
     console.print(Panel(
-        Text(f"📝 Escribe '{CANCEL_KEYWORD}' en cualquier momento para cancelar y volver al menú principal", 
+        Text(f"📝 Type '{CANCEL_KEYWORD}' at any time to cancel and return to the main menu", 
              style="yellow", justify="center"),
         border_style="yellow",
         box=ROUNDED
@@ -427,47 +427,47 @@ def setup_config() -> Dict:
                 adding_profiles = False
                 continue
         
-        # Profile name - Primer perfil es "client" por defecto
+        # Profile name - First profile is "client" by default
         if profile_count == 0:
             profile_name = Prompt.ask(
                 "\n[cyan]Enter profile name[/cyan] (e.g. client, server, modpack1)",
-                default="client"  # Primer perfil tiene nombre por defecto "client"
+                default="client"  # First profile has default name "client"
             )
         elif profile_count == 1:
             profile_name = Prompt.ask(
                 "\n[cyan]Enter profile name[/cyan] (e.g. client, server, modpack1)",
-                default="server"  # Segundo perfil tiene nombre por defecto "server"
+                default="server"  # Second profile has default name "server"
             )
         else:
             profile_name = Prompt.ask(
                 "\n[cyan]Enter profile name[/cyan] (e.g. client, server, modpack1)",
-                default=f"profile{profile_count+1}"  # Los demás perfiles no tienen nombre por defecto
+                default=f"profile{profile_count+1}"  # Other profiles have no default name
             )
         
         # Check for cancellation
         if profile_name.lower() == CANCEL_KEYWORD:
             console.print(Panel(
-                Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+                Text("🚫 Configuration canceled. Returning to the main menu...", 
                      style="bold yellow", justify="center"),
                 border_style="yellow",
                 box=ROUNDED
             ))
-            return config  # Volver al menú principal sin guardar cambios
+            return config  # Return to the main menu without saving changes
             
         # Check for duplicate names
         if profile_name in new_mod_folders:
             console.print(f"[yellow]Profile '{profile_name}' already exists. Please use a different name.[/yellow]")
             continue
             
-        # Mod folder path for this profile - Solo el primer perfil "client" tiene ruta por defecto
+        # Mod folder path for this profile - Only the first profile "client" has a default path
         if profile_count == 0 and profile_name.lower() == "client":
-            # Ruta por defecto para el perfil "client" usando la carpeta .minecraft/mods del usuario
+            # Default path for the "client" profile using the user's .minecraft/mods folder
             default_path = DEFAULT_MINECRAFT_MODS
         elif profile_count == 1 and profile_name.lower() == "server":
-            # El segundo perfil no tiene ruta por defecto específica
+            # The second profile has no specific default path
             default_path = mod_folders.get(profile_name, f"mods-{profile_name}")
         else:
-            # Los demás perfiles no tienen ruta por defecto
+            # Other profiles have no default path
             default_path = mod_folders.get(profile_name, f"mods-{profile_name}")
             
         folder_path = Prompt.ask(
@@ -478,12 +478,12 @@ def setup_config() -> Dict:
         # Check for cancellation
         if folder_path.lower() == CANCEL_KEYWORD:
             console.print(Panel(
-                Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+                Text("🚫 Configuration canceled. Returning to the main menu...", 
                      style="bold yellow", justify="center"),
                 border_style="yellow",
                 box=ROUNDED
             ))
-            return config  # Volver al menú principal sin guardar cambios
+            return config  # Return to the main menu without saving changes
             
         # Success message with fancy styling
         new_mod_folders[profile_name] = folder_path
@@ -522,12 +522,12 @@ def setup_config() -> Dict:
     # Check for cancellation
     if selected.lower() == CANCEL_KEYWORD:
         console.print(Panel(
-            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+            Text("🚫 Configuration canceled. Returning to the main menu...", 
                  style="bold yellow", justify="center"),
             border_style="yellow",
             box=ROUNDED
         ))
-        return config  # Volver al menú principal sin guardar cambios
+        return config  # Return to the main menu without saving changes
         
     # Game versions
     config_table.add_row("", "")
@@ -543,12 +543,12 @@ def setup_config() -> Dict:
     # Check for cancellation
     if new_game_versions_str.lower() == CANCEL_KEYWORD:
         console.print(Panel(
-            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+            Text("🚫 Configuration canceled. Returning to the main menu...", 
                  style="bold yellow", justify="center"),
             border_style="yellow",
             box=ROUNDED
         ))
-        return config  # Volver al menú principal sin guardar cambios
+        return config  # Return to the main menu without saving changes
         
     new_game_versions = [v.strip() for v in new_game_versions_str.split(",")]
     config_table.add_row("Game versions", f"[green]{new_game_versions_str}[/green]")
@@ -564,12 +564,12 @@ def setup_config() -> Dict:
     # Check for cancellation
     if new_loaders_str.lower() == CANCEL_KEYWORD:
         console.print(Panel(
-            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+            Text("🚫 Configuration canceled. Returning to the main menu...", 
                  style="bold yellow", justify="center"),
             border_style="yellow",
             box=ROUNDED
         ))
-        return config  # Volver al menú principal sin guardar cambios
+        return config  # Return to the main menu without saving changes
         
     new_loaders = [l.strip() for l in new_loaders_str.split(",")]
     config_table.add_row("Mod loaders", f"[green]{new_loaders_str}[/green]")
@@ -585,16 +585,6 @@ def setup_config() -> Dict:
     )
     config_table.add_row("Auto-update", "[green]Yes[/green]" if new_auto_update else "[yellow]No[/yellow]")
     
-    # Check for cancellation
-    if new_auto_update.lower() == CANCEL_KEYWORD:
-        console.print(Panel(
-            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
-                 style="bold yellow", justify="center"),
-            border_style="yellow",
-            box=ROUNDED
-        ))
-        return config  # Volver al menú principal sin guardar cambios
-        
     # Backup mods
     backup_mods = config.get("backup_mods", True)
     new_backup_mods = Confirm.ask(
@@ -603,16 +593,6 @@ def setup_config() -> Dict:
     )
     config_table.add_row("Create backups", "[green]Yes[/green]" if new_backup_mods else "[yellow]No[/yellow]")
     
-    # Check for cancellation
-    if new_backup_mods.lower() == CANCEL_KEYWORD:
-        console.print(Panel(
-            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
-                 style="bold yellow", justify="center"),
-            border_style="yellow",
-            box=ROUNDED
-        ))
-        return config  # Volver al menú principal sin guardar cambios
-        
     # Check interval
     check_interval = config.get("check_interval_days", 7)
     new_check_interval = int(Prompt.ask(
@@ -623,12 +603,12 @@ def setup_config() -> Dict:
     # Check for cancellation
     if str(new_check_interval).lower() == CANCEL_KEYWORD:
         console.print(Panel(
-            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+            Text("🚫 Configuration canceled. Returning to the main menu...", 
                  style="bold yellow", justify="center"),
             border_style="yellow",
             box=ROUNDED
         ))
-        return config  # Volver al menú principal sin guardar cambios
+        return config  # Return to the main menu without saving changes
         
     config_table.add_row("Check interval", f"[green]{new_check_interval} days[/green]")
     
@@ -667,7 +647,7 @@ def display_header() -> None:
     clear_screen()
     header_text = Text("✨ Minecraft Mod Updater ✨", style="bold cyan", justify="center")
     subtitle_text = Text("Keep your mods up to date automatically", style="italic dim cyan", justify="center")
-    author_text = Text("By CodeInIA", style="bold magenta", justify="center")
+    author_text = Text("👾 By CodeInIA 👾", style="bold magenta", justify="center")
     
     console.print("\n")
     console.print(Panel(
@@ -746,18 +726,34 @@ def main() -> None:
                 profile_options[str(option_num)] = profile
                 option_num += 1
             
-            # Configuration and exit options
-            config_option = str(option_num)
-            menu_table.add_row(f"{option_num}", f"🔧 [yellow]Configure settings[/yellow]")
+            # Add new profile option
+            add_profile_option = str(option_num)
+            menu_table.add_row(f"{option_num}", f"➕ [blue]Add new profile[/blue]")
             option_num += 1
             
+            # Modify profile option
+            modify_profile_option = str(option_num)
+            menu_table.add_row(f"{option_num}", f"📝[yellow]Modify existing profile[/yellow]")
+            option_num += 1
+            
+            # Delete profile option
+            delete_profile_option = str(option_num)
+            menu_table.add_row(f"{option_num}", f"❌ [red]Delete a profile[/red]")
+            option_num += 1
+            
+            # Reset configuration option
+            reset_config_option = str(option_num)
+            menu_table.add_row(f"{option_num}", f"🔄 [red]Reset configuration[/red]")
+            option_num += 1
+            
+            # Exit option
             exit_option = str(option_num)
             menu_table.add_row(f"{option_num}", f"🚪 [red]Exit[/red]")
             
             console.print(menu_table)
             
             # Get user choice
-            all_options = list(profile_options.keys()) + [config_option, exit_option]
+            all_options = list(profile_options.keys()) + [add_profile_option, modify_profile_option, delete_profile_option, reset_config_option, exit_option]
             choice = Prompt.ask("\n💬 Choose an option", choices=all_options, default="1")
             
             # Process user choice
@@ -769,9 +765,21 @@ def main() -> None:
                     box=ROUNDED
                 ))
                 break
-            elif choice == config_option:
-                config = setup_config()
-                # Update mod_folders after config change
+            elif choice == reset_config_option:
+                config = reset_configuration()
+                # Update mod_folders after config reset
+                mod_folders = config.get("mod_folders", {"client": "mods-client", "server": "mods-server"})
+            elif choice == add_profile_option:
+                config = add_new_profile(config)
+                # Update mod_folders after adding profile
+                mod_folders = config.get("mod_folders", {"client": "mods-client", "server": "mods-server"})
+            elif choice == modify_profile_option:
+                config = modify_profile(config)
+                # Update mod_folders after modifying profile
+                mod_folders = config.get("mod_folders", {"client": "mods-client", "server": "mods-server"})
+            elif choice == delete_profile_option:
+                config = delete_profile(config)
+                # Update mod_folders after deleting profile
                 mod_folders = config.get("mod_folders", {"client": "mods-client", "server": "mods-server"})
             else:
                 # User selected a profile, set as active and proceed with update check
@@ -816,8 +824,13 @@ def check_for_updates(config: Dict, active_profile: str) -> None:
     # Choose appropriate icon based on profile name
     profile_icon = "👤" if active_profile.lower() == "client" else "💻" if active_profile.lower() == "server" else "📁"
     
+    # Correctly format the text using Rich's Text.assemble
     console.print(Panel(
-        Text(f"{profile_icon} Checking updates for: [bold cyan]{active_profile}[/bold cyan] profile ([cyan]{mod_folder}[/cyan])", justify="center"),
+        Text.assemble(
+            profile_icon, " Checking updates for: ",
+            Text(active_profile, style="bold cyan"), " profile (",
+            Text(mod_folder, style="cyan"), ")"
+        ),
         border_style="cyan",
         box=ROUNDED,
         title="[bold cyan]Update Checker[/bold cyan]"
@@ -995,6 +1008,449 @@ def check_for_updates(config: Dict, active_profile: str) -> None:
             border_style="cyan",
             box=ROUNDED
         ))
+
+def add_new_profile(config: Dict) -> Dict:
+    """Add a new profile without modifying existing ones."""
+    display_header()
+    
+    # Get existing mod folders
+    mod_folders = config.get("mod_folders", {})
+    if not mod_folders:
+        mod_folders = {}
+    
+    # Check if maximum profiles reached
+    max_profiles = 10
+    if len(mod_folders) >= max_profiles:
+        console.print(Panel(
+            Text(f"⚠️ Maximum number of profiles ({max_profiles}) reached!", style="bold red", justify="center"),
+            border_style="red",
+            box=ROUNDED
+        ))
+        input("\nPress Enter to continue...")
+        return config
+    
+    console.print(Panel(
+        Text("➕ Add New Profile", style="bold cyan", justify="center"),
+        border_style="cyan",
+        box=ROUNDED,
+        padding=(1, 2)
+    ))
+    
+    # Show indication that profile addition can be canceled with the keyword
+    console.print(Panel(
+        Text(f"📝 Type '{CANCEL_KEYWORD}' at any time to cancel and return to the main menu", 
+             style="yellow", justify="center"),
+        border_style="yellow",
+        box=ROUNDED
+    ))
+    
+    # Show existing profiles
+    if mod_folders:
+        profile_summary = Table(title="[bold cyan]Existing Profiles[/bold cyan]", box=ROUNDED, border_style="cyan")
+        profile_summary.add_column("Profile", style="bold cyan")
+        profile_summary.add_column("Path", style="green")
+        
+        for profile, path in mod_folders.items():
+            profile_summary.add_row(profile, path)
+        
+        console.print(profile_summary)
+    
+    # Ask for profile name
+    profile_count = len(mod_folders)
+    default_name = f"profile{profile_count+1}"
+    
+    profile_name = Prompt.ask(
+        "\n[cyan]Enter profile name[/cyan] (e.g. client, server, modpack1)",
+        default=default_name
+    )
+    
+    # Check for cancellation
+    if profile_name.lower() == CANCEL_KEYWORD:
+        console.print(Panel(
+            Text("🚫 Operation canceled. Returning to the main menu...", 
+                style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config
+        
+    # Check for duplicate names
+    if profile_name in mod_folders:
+        console.print(Panel(
+            Text(f"⚠️ A profile named '{profile_name}' already exists!", style="bold red", justify="center"),
+            border_style="red",
+            box=ROUNDED
+        ))
+        input("\nPress Enter to continue...")
+        return config
+        
+    # Ask for mod folder path
+    default_path = f"mods-{profile_name}"
+    folder_path = Prompt.ask(
+        f"[cyan]Enter mod folder path for profile '{profile_name}'[/cyan] (relative or absolute path)",
+        default=default_path
+    )
+    
+    # Check for cancellation
+    if folder_path.lower() == CANCEL_KEYWORD:
+        console.print(Panel(
+            Text("🚫 Operation canceled. Returning to the main menu...", 
+                style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config
+    
+    # Add the new profile
+    mod_folders[profile_name] = folder_path
+    config["mod_folders"] = mod_folders
+    
+    # Success message
+    console.print(Panel(
+        f"✅ Profile [bold cyan]{profile_name}[/bold cyan] added with path: [green]{folder_path}[/green]",
+        border_style="green",
+        box=ROUNDED,
+        padding=(0, 1)
+    ))
+    
+    # Save config
+    save_config(config)
+    
+    input("\nPress Enter to continue...")
+    return config
+
+def modify_profile(config: Dict) -> Dict:
+    """Modify an existing profile."""
+    display_header()
+    
+    # Get existing mod folders
+    mod_folders = config.get("mod_folders", {})
+    if not mod_folders:
+        console.print(Panel(
+            Text("⚠️ No profiles found to modify!", style="bold red", justify="center"),
+            border_style="red",
+            box=ROUNDED
+        ))
+        input("\nPress Enter to continue...")
+        return config
+    
+    console.print(Panel(
+        Text("📝Modify Profile", style="bold cyan", justify="center"),
+        border_style="cyan",
+        box=ROUNDED,
+        padding=(1, 2)
+    ))
+    
+    # Show existing profiles with numbers
+    profile_summary = Table(title="[bold cyan]Existing Profiles[/bold cyan]", box=ROUNDED, border_style="cyan")
+    profile_summary.add_column("#", style="cyan", justify="center")
+    profile_summary.add_column("Profile", style="bold cyan")
+    profile_summary.add_column("Path", style="green")
+    
+    profile_choices = {}
+    for i, (profile, path) in enumerate(mod_folders.items(), 1):
+        profile_summary.add_row(str(i), profile, path)
+        profile_choices[str(i)] = profile
+        # Also add the profile name as a valid choice
+        profile_choices[profile] = profile
+    
+    # Add option to return to main menu
+    profile_summary.add_row("[bold yellow]0[/bold yellow]", "[bold yellow]Return to Main Menu[/bold yellow]", "")
+    profile_choices["0"] = "return"
+    
+    console.print(profile_summary)
+    
+    # Option to cancel
+    console.print(Panel(
+        Text(f"💡 Type '{CANCEL_KEYWORD}' at any time to cancel and return to the main menu", 
+             style="yellow", justify="center"),
+        border_style="yellow",
+        box=ROUNDED
+    ))
+    
+    # Select profile to modify
+    profile_to_modify = Prompt.ask(
+        "\n[cyan]Select profile to modify[/cyan] (number or name)",
+        choices=list(profile_choices.keys())
+    )
+    
+    # Check for return to main menu
+    if profile_to_modify == "0" or profile_to_modify == "return":
+        console.print(Panel(
+            Text("🔙 Returning to the main menu...", 
+                style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config
+    
+    # Check for cancellation
+    if profile_to_modify.lower() == CANCEL_KEYWORD:
+        console.print(Panel(
+            Text("🚫 Operation canceled. Returning to the main menu...", 
+                style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config
+    
+    # Get the actual profile name (if user entered a number)
+    profile_to_modify = profile_choices[profile_to_modify]
+    
+    # Current path
+    current_path = mod_folders[profile_to_modify]
+    
+    # Modification options
+    console.print("\n[bold cyan]Modify options for profile:[/bold cyan]", profile_to_modify)
+    
+    # Create a menu for modification options
+    mod_menu = Table(box=ROUNDED, show_header=False, border_style="cyan", expand=True)
+    mod_menu.add_column("Option", style="cyan", justify="center", width=5)
+    mod_menu.add_column("Description", style="white")
+    
+    mod_menu.add_row("1", "📝 Rename profile")
+    mod_menu.add_row("2", "📁 Change folder path")
+    mod_menu.add_row("0", "🔙 Return to main menu")
+    
+    console.print(mod_menu)
+    
+    # Get user choice
+    mod_choice = Prompt.ask("\n💬 Choose an option", choices=["0", "1", "2"], default="1")
+    
+    if mod_choice == "0" or mod_choice.lower() == CANCEL_KEYWORD:
+        console.print(Panel(
+            Text("🔙 Returning to the main menu...", 
+                style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config
+    
+    # Process user choice
+    if mod_choice == "1":  # Rename profile
+        new_name = Prompt.ask(
+            f"[cyan]Enter new name for profile '{profile_to_modify}'[/cyan]",
+            default=profile_to_modify
+        )
+        
+        # Check for cancellation
+        if new_name.lower() == CANCEL_KEYWORD:
+            console.print(Panel(
+                Text("🚫 Operation canceled. Returning to the main menu...", 
+                    style="bold yellow", justify="center"),
+                border_style="yellow",
+                box=ROUNDED
+            ))
+            return config
+        
+        # Check if name already exists
+        if new_name in mod_folders and new_name != profile_to_modify:
+            console.print(Panel(
+                Text(f"⚠️ A profile named '{new_name}' already exists!", style="bold red", justify="center"),
+                border_style="red",
+                box=ROUNDED
+            ))
+        else:
+            # Update profile name
+            if new_name != profile_to_modify:
+                mod_folders[new_name] = mod_folders.pop(profile_to_modify)
+                
+                # If this was the active profile, update that too
+                if config.get("current_folder") == profile_to_modify:
+                    config["current_folder"] = new_name
+                
+                console.print(Panel(
+                    f"✅ Profile renamed from [bold cyan]{profile_to_modify}[/bold cyan] to [bold cyan]{new_name}[/bold cyan]",
+                    border_style="green",
+                    box=ROUNDED
+                ))
+            else:
+                console.print(Panel(
+                    "ℹ️ No changes made to profile name",
+                    border_style="cyan",
+                    box=ROUNDED
+                ))
+    
+    elif mod_choice == "2":  # Change folder path
+        new_path = Prompt.ask(
+            f"[cyan]Enter new folder path for profile '{profile_to_modify}'[/cyan]",
+            default=current_path
+        )
+        
+        # Check for cancellation
+        if new_path.lower() == CANCEL_KEYWORD:
+            console.print(Panel(
+                Text("🚫 Operation canceled. Returning to the main menu...", 
+                    style="bold yellow", justify="center"),
+                border_style="yellow",
+                box=ROUNDED
+            ))
+            return config
+        
+        if new_path != current_path:
+            mod_folders[profile_to_modify] = new_path
+            console.print(Panel(
+                f"✅ Path for profile [bold cyan]{profile_to_modify}[/bold cyan] updated to: [green]{new_path}[/green]",
+                border_style="green",
+                box=ROUNDED
+            ))
+        else:
+            console.print(Panel(
+                "ℹ️ No changes made to folder path",
+                border_style="cyan",
+                box=ROUNDED
+            ))
+    
+    # Update config
+    config["mod_folders"] = mod_folders
+    
+    # Save config
+    save_config(config)
+    
+    input("\nPress Enter to continue...")
+    return config
+
+def delete_profile(config: Dict) -> Dict:
+    """Delete an existing profile."""
+    display_header()
+    
+    # Get existing mod folders
+    mod_folders = config.get("mod_folders", {})
+    if not mod_folders:
+        console.print(Panel(
+            Text("⚠️ No profiles found to delete!", style="bold red", justify="center"),
+            border_style="red",
+            box=ROUNDED
+        ))
+        input("\nPress Enter to continue...")
+        return config
+    
+    console.print(Panel(
+        Text("❌ Delete Profile", style="bold red", justify="center"),
+        border_style="red",
+        box=ROUNDED,
+        padding=(1, 2)
+    ))
+    
+    # Show existing profiles with numbers
+    profile_summary = Table(title="[bold cyan]Existing Profiles[/bold cyan]", box=ROUNDED, border_style="cyan")
+    profile_summary.add_column("#", style="cyan", justify="center")
+    profile_summary.add_column("Profile", style="bold cyan")
+    profile_summary.add_column("Path", style="green")
+    
+    profile_choices = {}
+    for i, (profile, path) in enumerate(mod_folders.items(), 1):
+        profile_summary.add_row(str(i), profile, path)
+        profile_choices[str(i)] = profile
+        # Also add the profile name as a valid choice
+        profile_choices[profile] = profile
+    
+    # Add option to return to main menu
+    profile_summary.add_row("[bold yellow]0[/bold yellow]", "[bold yellow]Return to Main Menu[/bold yellow]", "")
+    profile_choices["0"] = "return"
+    
+    console.print(profile_summary)
+    
+    # Select profile to delete
+    profile_to_delete = Prompt.ask(
+        "\n[cyan]Select profile to delete[/cyan] (number or name)",
+        choices=list(profile_choices.keys())
+    )
+    
+    # Check for return to main menu
+    if profile_to_delete == "0" or profile_to_delete == "return":
+        console.print(Panel(
+            Text("🔙 Returning to the main menu...", 
+                style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config
+    
+    # Get the actual profile name (if user entered a number)
+    profile_to_delete = profile_choices[profile_to_delete]
+    
+    # Confirm deletion
+    confirm_delete = Confirm.ask(
+        f"[bold red]Are you sure you want to delete profile '{profile_to_delete}'?[/bold red] This cannot be undone.",
+        default=False
+    )
+    
+    if confirm_delete:
+        # Remove the profile
+        mod_folders.pop(profile_to_delete)
+        
+        # If this was the active profile, update that too
+        if config.get("current_folder") == profile_to_delete and mod_folders:
+            config["current_folder"] = next(iter(mod_folders))
+        
+        console.print(Panel(
+            f"✅ Profile [bold cyan]{profile_to_delete}[/bold cyan] has been deleted",
+            border_style="green",
+            box=ROUNDED
+        ))
+    else:
+        console.print(Panel(
+            "ℹ️ Profile deletion canceled",
+            border_style="cyan",
+            box=ROUNDED
+        ))
+    
+    # Update config
+    config["mod_folders"] = mod_folders
+    
+    # Save config
+    save_config(config)
+    
+    input("\nPress Enter to continue...")
+    return config
+
+def reset_configuration() -> Dict:
+    """Reset configuration to default values."""
+    display_header()
+    
+    console.print(Panel(
+        Text("🔄 Reset Configuration", style="bold yellow", justify="center"),
+        border_style="yellow",
+        box=ROUNDED,
+        padding=(1, 2)
+    ))
+    
+    console.print(Panel(
+        Text("⚠️ This will reset all settings to their default values!", 
+             style="bold red", justify="center"),
+        border_style="red",
+        box=ROUNDED
+    ))
+    
+    confirm_reset = Confirm.ask(
+        "[bold red]Are you sure you want to reset all settings?[/bold red] This cannot be undone.",
+        default=False
+    )
+    
+    if not confirm_reset:
+        console.print(Panel(
+            Text("ℹ️ Reset operation canceled", style="cyan", justify="center"),
+            border_style="cyan",
+            box=ROUNDED
+        ))
+        input("\nPress Enter to continue...")
+        return load_config()
+    
+    # Create a fresh default configuration
+    config = default_config.copy()
+    
+    # Save the default configuration
+    save_config(config)
+    
+    console.print(Panel(
+        Text("✅ Configuration has been reset to default values", style="bold green", justify="center"),
+        border_style="green",
+        box=ROUNDED
+    ))
+    
+    input("\nPress Enter to continue...")
+    return config
 
 if __name__ == "__main__":
     main()
