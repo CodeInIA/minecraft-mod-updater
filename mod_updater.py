@@ -16,6 +16,10 @@ from rich.prompt import Prompt, Confirm
 from rich.box import ROUNDED
 from rich.layout import Layout
 from rich.align import Align
+from rich.live import Live
+
+# Palabra clave para cancelar la configuración
+CANCEL_KEYWORD = "cancel"
 
 # Constants
 CONFIG_FILE = os.path.join(os.getenv("APPDATA"), "minecraft_mod_updater", "mod_updater_config.json")
@@ -379,6 +383,14 @@ def setup_config() -> Dict:
         padding=(1, 2)
     ))
     
+    # Mostrar indicación de que se puede cancelar con la palabra clave
+    console.print(Panel(
+        Text(f"📝 Escribe '{CANCEL_KEYWORD}' en cualquier momento para cancelar y volver al menú principal", 
+             style="yellow", justify="center"),
+        border_style="yellow",
+        box=ROUNDED
+    ))
+    
     # Create form-like layout
     config_table = Table(box=ROUNDED, show_header=False, border_style="cyan", expand=True)
     config_table.add_column("Setting", style="cyan")
@@ -403,6 +415,7 @@ def setup_config() -> Dict:
     
     # Add or edit profiles
     adding_profiles = True
+    
     while adding_profiles and profile_count < max_profiles:
         # If we already have profiles, ask to edit existing ones first
         if profile_count > 0:
@@ -431,6 +444,16 @@ def setup_config() -> Dict:
                 default=f"profile{profile_count+1}"  # Los demás perfiles no tienen nombre por defecto
             )
         
+        # Check for cancellation
+        if profile_name.lower() == CANCEL_KEYWORD:
+            console.print(Panel(
+                Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+                     style="bold yellow", justify="center"),
+                border_style="yellow",
+                box=ROUNDED
+            ))
+            return config  # Volver al menú principal sin guardar cambios
+            
         # Check for duplicate names
         if profile_name in new_mod_folders:
             console.print(f"[yellow]Profile '{profile_name}' already exists. Please use a different name.[/yellow]")
@@ -452,6 +475,16 @@ def setup_config() -> Dict:
             default=default_path
         )
         
+        # Check for cancellation
+        if folder_path.lower() == CANCEL_KEYWORD:
+            console.print(Panel(
+                Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+                     style="bold yellow", justify="center"),
+                border_style="yellow",
+                box=ROUNDED
+            ))
+            return config  # Volver al menú principal sin guardar cambios
+            
         # Success message with fancy styling
         new_mod_folders[profile_name] = folder_path
         profile_count += 1
@@ -486,6 +519,16 @@ def setup_config() -> Dict:
     )
     config_table.add_row("Active profile", f"[bold cyan]{selected}[/bold cyan]")
     
+    # Check for cancellation
+    if selected.lower() == CANCEL_KEYWORD:
+        console.print(Panel(
+            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+                 style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config  # Volver al menú principal sin guardar cambios
+        
     # Game versions
     config_table.add_row("", "")
     config_table.add_row("[bold cyan]🎮 Game Settings[/bold cyan]", "")
@@ -496,6 +539,17 @@ def setup_config() -> Dict:
         "\n[cyan]🔢 Game versions[/cyan] (comma-separated)",
         default=game_versions_str
     )
+    
+    # Check for cancellation
+    if new_game_versions_str.lower() == CANCEL_KEYWORD:
+        console.print(Panel(
+            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+                 style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config  # Volver al menú principal sin guardar cambios
+        
     new_game_versions = [v.strip() for v in new_game_versions_str.split(",")]
     config_table.add_row("Game versions", f"[green]{new_game_versions_str}[/green]")
     
@@ -506,6 +560,17 @@ def setup_config() -> Dict:
         "[cyan]🧩 Mod loaders[/cyan] (comma-separated)",
         default=loaders_str
     )
+    
+    # Check for cancellation
+    if new_loaders_str.lower() == CANCEL_KEYWORD:
+        console.print(Panel(
+            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+                 style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config  # Volver al menú principal sin guardar cambios
+        
     new_loaders = [l.strip() for l in new_loaders_str.split(",")]
     config_table.add_row("Mod loaders", f"[green]{new_loaders_str}[/green]")
     
@@ -520,6 +585,16 @@ def setup_config() -> Dict:
     )
     config_table.add_row("Auto-update", "[green]Yes[/green]" if new_auto_update else "[yellow]No[/yellow]")
     
+    # Check for cancellation
+    if new_auto_update.lower() == CANCEL_KEYWORD:
+        console.print(Panel(
+            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+                 style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config  # Volver al menú principal sin guardar cambios
+        
     # Backup mods
     backup_mods = config.get("backup_mods", True)
     new_backup_mods = Confirm.ask(
@@ -528,12 +603,33 @@ def setup_config() -> Dict:
     )
     config_table.add_row("Create backups", "[green]Yes[/green]" if new_backup_mods else "[yellow]No[/yellow]")
     
+    # Check for cancellation
+    if new_backup_mods.lower() == CANCEL_KEYWORD:
+        console.print(Panel(
+            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+                 style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config  # Volver al menú principal sin guardar cambios
+        
     # Check interval
     check_interval = config.get("check_interval_days", 7)
     new_check_interval = int(Prompt.ask(
         "[cyan]⏱️ Check interval (days)[/cyan]",
         default=str(check_interval)
     ))
+    
+    # Check for cancellation
+    if str(new_check_interval).lower() == CANCEL_KEYWORD:
+        console.print(Panel(
+            Text("🚫 Configuración cancelada. Volviendo al menú principal...", 
+                 style="bold yellow", justify="center"),
+            border_style="yellow",
+            box=ROUNDED
+        ))
+        return config  # Volver al menú principal sin guardar cambios
+        
     config_table.add_row("Check interval", f"[green]{new_check_interval} days[/green]")
     
     # Update config
@@ -571,13 +667,16 @@ def display_header() -> None:
     clear_screen()
     header_text = Text("✨ Minecraft Mod Updater ✨", style="bold cyan", justify="center")
     subtitle_text = Text("Keep your mods up to date automatically", style="italic dim cyan", justify="center")
+    author_text = Text("By CodeInIA", style="bold magenta", justify="center")
     
     console.print("\n")
     console.print(Panel(
         Text.assemble(
             header_text, 
             "\n", 
-            subtitle_text
+            subtitle_text,
+            "\n",
+            author_text
         ),
         border_style="cyan",
         box=ROUNDED,
