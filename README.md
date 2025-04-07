@@ -13,26 +13,27 @@ A powerful Python tool to automatically keep your Minecraft mods up to date with
 - **Customizable Settings**: Configure update intervals, automatic updates, and more
 - **User-Friendly Interface**: Beautiful terminal UI with progress indicators and status information
 
-## 📋 Requirements
+## 📥 Download
 
-- Python 3.7 or higher
-- Required Python packages:
-  - requests
-  - rich
-  - packaging
+**[Download v1.0.0 Release](https://github.com/CodeInIA/minecraft-mod-updater/releases/tag/v1.0.0)**
+
+Available as a Windows Installer with start menu shortcuts and desktop integration.
 
 ## 🚀 Installation
 
-1. Install Python from [python.org](https://www.python.org/downloads/)
-2. Install the required packages:
+### Option 1: Windows Installer
+1. Download the installer (`MinecraftModUpdater_Setup.exe`) from the [releases page](https://github.com/CodeInIA/minecraft-mod-updater/releases)
+2. Run the installer and follow the on-screen instructions
+3. Launch from the Start Menu or desktop shortcut
 
+### Option 2: From Source Code
+1. Install Python from [python.org](https://www.python.org/downloads/) (version 3.7 or higher)
+2. Install the required packages:
 ```bash
 pip install requests rich packaging
 ```
-
-3. Download and extract the tool to your desired location
+3. Download and extract the source code
 4. Run the updater:
-
 ```bash
 python mod_updater.py
 ```
@@ -105,46 +106,70 @@ This project is released under the MIT License.
 
 Created with ❤️ for the Minecraft modding community
 
-# Minecraft Mod Updater
+# Minecraft Mod Updater (Español)
 
 Minecraft Mod Updater es una herramienta diseñada para facilitar la actualización automática de mods en Minecraft. Con esta herramienta, puedes mantener tus mods actualizados sin complicaciones.
 
 ## Características
-- Actualización automática de mods.
-- Configuración sencilla.
-- Compatible con múltiples versiones de Minecraft.
+- Actualización automática de mods desde Modrinth
+- Soporte para múltiples perfiles (cliente, servidor, modpacks)
+- Configuración sencilla
+- Compatible con múltiples versiones de Minecraft y cargadores de mods
+
+## Descargar
+
+**[Descargar versión v1.0.0](https://github.com/CodeInIA/minecraft-mod-updater/releases/tag/v1.0.0)**
+
+Disponible como instalador para Windows con accesos directos en el menú inicio e integración con el escritorio.
 
 ## Instalación
 
-1. Descarga la última versión del instalador desde la sección [Releases](https://github.com/tu-usuario/minecraft-mod-updater/releases) en GitHub.
-2. Ejecuta el instalador `MinecraftModUpdater_Setup.exe` y sigue las instrucciones en pantalla.
+### Opción 1: Instalador para Windows
+1. Descarga el instalador (`MinecraftModUpdater_Setup.exe`) desde la sección [Releases](https://github.com/CodeInIA/minecraft-mod-updater/releases)
+2. Ejecuta el instalador y sigue las instrucciones en pantalla
+3. Abre la aplicación desde el menú Inicio o el escritorio
+
+### Opción 2: Desde el código fuente
+1. Instala Python desde [python.org](https://www.python.org/downloads/) (versión 3.7 o superior)
+2. Instala las dependencias necesarias:
+```bash
+pip install requests rich packaging
+```
+3. Descarga y extrae el código fuente
+4. Ejecuta:
+```bash
+python mod_updater.py
+```
 
 ## Uso
 
-1. Abre la aplicación Minecraft Mod Updater.
-2. Configura la carpeta de mods y las opciones deseadas.
-3. Haz clic en "Actualizar mods" para comenzar.
+1. Abre la aplicación Minecraft Mod Updater
+2. En el primer uso, se te guiará por el proceso de configuración:
+   - Configura las carpetas de mods para tus perfiles
+   - Selecciona las versiones de Minecraft y cargadores de mods
+   - Establece las preferencias de actualización
+3. Usa el menú principal para verificar actualizaciones o cambiar la configuración
 
 ## Requisitos
-- Windows 7 o superior.
-- Python 3.8 o superior (solo para desarrolladores).
+- Windows 7 o superior para las versiones precompiladas
+- Python 3.7 o superior (solo para ejecutar desde el código fuente)
 
 ## Contribuir
 Si deseas contribuir al proyecto:
 
 1. Clona este repositorio:
-   ```bash
-   git clone https://github.com/tu-usuario/minecraft-mod-updater.git
-   ```
+```bash
+git clone https://github.com/CodeInIA/minecraft-mod-updater.git
+```
 2. Instala las dependencias necesarias:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Realiza tus cambios y envía un pull request.
+```bash
+pip install requests rich packaging
+```
+3. Realiza tus cambios y envía un pull request
 
 ## Licencia
 Este proyecto está licenciado bajo la [MIT License](LICENSE).
 
 ---
 
-¡Gracias por usar Minecraft Mod Updater! Si tienes alguna pregunta o problema, no dudes en abrir un [issue](https://github.com/tu-usuario/minecraft-mod-updater/issues).
+¡Gracias por usar Minecraft Mod Updater! Si tienes alguna pregunta o problema, no dudes en abrir un [issue](https://github.com/CodeInIA/minecraft-mod-updater/issues).
