@@ -1406,7 +1406,7 @@ def delete_profile(config: Dict) -> Dict:
     return config
 
 def reset_configuration() -> Dict:
-    """Reset configuration to default values."""
+    """Reset configuration by deleting the config file and starting fresh setup."""
     display_header()
     
     console.print(Panel(
@@ -1417,7 +1417,7 @@ def reset_configuration() -> Dict:
     ))
     
     console.print(Panel(
-        Text("⚠️ This will reset all settings to their default values!", 
+        Text("⚠️ This will delete your configuration file and restart the setup process!", 
              style="bold red", justify="center"),
         border_style="red",
         box=ROUNDED
@@ -1437,20 +1437,35 @@ def reset_configuration() -> Dict:
         input("\nPress Enter to continue...")
         return load_config()
     
-    # Create a fresh default configuration
-    config = default_config.copy()
+    # Delete the configuration file if it exists
+    if os.path.exists(CONFIG_FILE):
+        try:
+            os.remove(CONFIG_FILE)
+            console.print(Panel(
+                Text("✅ Configuration file deleted successfully", style="bold green", justify="center"),
+                border_style="green",
+                box=ROUNDED
+            ))
+        except Exception as e:
+            console.print(Panel(
+                Text(f"❌ Error deleting configuration file: {e}", style="bold red", justify="center"),
+                border_style="red",
+                box=ROUNDED
+            ))
+            input("\nPress Enter to continue...")
+            return load_config()
     
-    # Save the default configuration
-    save_config(config)
-    
+    # Run the setup configuration as if it's the first time
     console.print(Panel(
-        Text("✅ Configuration has been reset to default values", style="bold green", justify="center"),
-        border_style="green",
+        Text("🔧 Starting fresh configuration setup...", style="bold cyan", justify="center"),
+        border_style="cyan",
         box=ROUNDED
     ))
     
-    input("\nPress Enter to continue...")
-    return config
+    input("\nPress Enter to continue to setup...")
+    
+    # Return the result of setup_config which will create a new config
+    return setup_config()
 
 if __name__ == "__main__":
     main()
