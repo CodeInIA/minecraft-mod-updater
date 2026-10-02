@@ -273,6 +273,7 @@ class ModInfo:
     current: Optional[Dict] = None
     latest: Optional[Dict] = None
     title: str = ""
+    icon_url: str = ""
     status: str = STATUS_NOT_FOUND
     error: str = ""
     duplicates: List[str] = field(default_factory=list)
@@ -459,7 +460,9 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
         mod.current = current.get(h)
         mod.latest = latest.get(h)
         if mod.current:
-            mod.title = projects.get(mod.current.get("project_id"), {}).get("title", "")
+            project = projects.get(mod.current.get("project_id"), {})
+            mod.title = project.get("title", "")
+            mod.icon_url = project.get("icon_url") or ""
         mod.status = determine_status(mod, result.game_version or "", loaders)
 
     progress(1.0, t("ready"))

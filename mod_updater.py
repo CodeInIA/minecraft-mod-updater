@@ -16,6 +16,7 @@ import customtkinter as ctk
 import app_updater
 import i18n
 import updater_core as core
+from mod_icons import IconCache
 from i18n import t
 
 ACCENT = ("#2E9E5B", "#2E9E5B")
@@ -377,6 +378,7 @@ class App(ctk.CTk):
         self.mods: List[core.ModInfo] = []
         self.last_scan: Optional[core.ScanResult] = None
         self.app_release: Optional[app_updater.Release] = None
+        self.icons = IconCache()
         self.banner_dismissed = False
         self.updating_app = False
         self.checked: set = set()
@@ -432,7 +434,7 @@ class App(ctk.CTk):
         self.busy = busy
         state = "disabled" if busy else "normal"
         for widget in (self.check_btn, self.add_btn, self.edit_btn, self.delete_btn, self.version_box,
-                       self.loader_menu, self.settings_btn):
+                       self.loader_menu, self.settings_btn, self.select_all_box):
             widget.configure(state=state)
         for btn in self.profile_buttons:
             btn.configure(state=state)
@@ -581,22 +583,28 @@ class App(ctk.CTk):
         self.search_entry = ctk.CTkEntry(summary, placeholder_text=t("filter_placeholder"), width=220)
         self.search_entry.pack(side="right")
         self.search_entry.bind("<KeyRelease>", lambda _e: self._fill_tree())
+        self.select_all_var = tk.BooleanVar(value=False)
+        self.select_all_box = ctk.CTkCheckBox(summary, text=t("select_all"), variable=self.select_all_var,
+                                              command=self._toggle_all, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                              checkbox_width=18, checkbox_height=18)
+        self.select_all_box.pack(side="right", padx=(0, 16))
 
         # Mod table
         table = ctk.CTkFrame(main, fg_color=CARD_BG, corner_radius=12)
         table.grid(row=4, column=0, sticky="nsew")
         table.grid_columnconfigure(0, weight=1)
         table.grid_rowconfigure(0, weight=1)
-        columns = ("sel", "name", "current", "latest", "status")
-        self.tree = ttk.Treeview(table, columns=columns, show="headings", style="Mods.Treeview", selectmode="none")
-        headings = {"sel": "", "name": t("col_mod"), "current": t("col_installed"), "latest": t("col_available"),
-                    "status": t("col_status")}
-        widths = {"sel": 40, "name": 240, "current": 160, "latest": 160, "status": 190}
+        # Column #0 shows checkbox + icon + name: it is the only Treeview column that can show an image.
+        columns = ("current", "latest", "status")
+        self.tree = ttk.Treeview(table, columns=columns, show="tree headings", style="Mods.Treeview",
+                                 selectmode="none")
+        self.tree.heading("#0", text=t("col_mod"), anchor="w", command=lambda: self._sort_by("name"))
+        self.tree.column("#0", width=290, minwidth=200, stretch=True, anchor="w")
+        headings = {"current": t("col_installed"), "latest": t("col_available"), "status": t("col_status")}
+        widths = {"current": 160, "latest": 160, "status": 190}
         for col in columns:
-            self.tree.heading(col, text=headings[col], command=(lambda c=col: self._sort_by(c)) if col != "sel"
-                              else self._toggle_all)
-            self.tree.column(col, width=widths[col], minwidth=40, stretch=col == "name",
-                             anchor="center" if col == "sel" else "w")
+            self.tree.heading(col, text=headings[col], anchor="w", command=lambda c=col: self._sort_by(c))
+            self.tree.column(col, width=widths[col], minwidth=40, stretch=False, anchor="w")
         self.tree.grid(row=0, column=0, sticky="nsew", padx=(10, 0), pady=10)
         scroll = ctk.CTkScrollbar(table, command=self.tree.yview)
         scroll.grid(row=0, column=1, sticky="ns", padx=4, pady=10)
@@ -634,6 +642,11 @@ class App(ctk.CTk):
         style.configure("Mods.Treeview", background=bg, fieldbackground=bg, foreground=fg, rowheight=32,
                         borderwidth=0, relief="flat", font=(family, 10))
         style.layout("Mods.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
+        style.configure("Mods.Treeview", indent=0)
+        style.layout("Mods.Treeview.Item", [("Treeitem.padding", {"sticky": "nswe", "children": [
+            ("Treeitem.image", {"side": "left", "sticky": ""}),
+            ("Treeitem.text", {"side": "left", "sticky": ""})]})])
+        style.configure("Mods.Treeview.Item", padding=(10, 0, 0, 0))
         style.configure("Mods.Treeview.Heading", background=head_bg, foreground=fg, relief="flat",
                         borderwidth=0, font=(family, 10, "bold"), padding=(8, 6))
         style.map("Mods.Treeview.Heading", background=[("active", head_bg)])
@@ -642,6 +655,7 @@ class App(ctk.CTk):
             self.tree.tag_configure(status, foreground=pick(color))
         self.tree.tag_configure("odd", background="#26292D" if is_dark() else "#F0F2F4")
         self.tree.tag_configure("hover", background="#30353A" if is_dark() else "#E3E7EB")
+        self._refresh_row_images()
 
     # ----- profiles -------------------------------------------------------- #
 
@@ -862,6 +876,10 @@ class App(ctk.CTk):
         self._fill_tree()
         self._update_summary()
         self._show_scan_status(result)
+        missing = self.icons.missing(m.icon_url for m in self.mods)
+        if missing:
+            self.run_task(lambda: self.icons.download(missing), lambda _r: self._refresh_row_images(),
+                          lambda _e: None)
 
     def _show_scan_status(self, result: core.ScanResult):
         mods = result.mods
@@ -936,19 +954,26 @@ class App(ctk.CTk):
         }[key]
         return sorted(mods, key=keyfn, reverse=reverse)
 
+    def _row_image(self, mod: core.ModInfo):
+        check = (mod.path in self.checked) if mod.status == core.STATUS_UPDATE else None
+        return self.icons.row_image(mod.icon_url, check, is_dark())
+
+    def _refresh_row_images(self):
+        mods = {m.path: m for m in self.mods}
+        for iid in self.tree.get_children():
+            if iid in mods:
+                self.tree.item(iid, image=self._row_image(mods[iid]))
+
     def _fill_tree(self):
         self.tree.delete(*self.tree.get_children())
         self._row_tags = {}
         self._hover_row = None
         for i, mod in enumerate(self._visible_mods()):
-            selectable = mod.status == core.STATUS_UPDATE
-            mark = ("☑" if mod.path in self.checked else "☐") if selectable else ""
             name = mod.display_name + (f"  {t('disabled_suffix')}" if mod.disabled else "")
-            status = status_label(mod.status)
             tags = [mod.status] + (["odd"] if i % 2 else [])
             self._row_tags[mod.path] = tags
-            self.tree.insert("", "end", iid=mod.path, values=(mark, name, mod.current_version, mod.latest_version, status),
-                             tags=tags)
+            self.tree.insert("", "end", iid=mod.path, text="  " + name, image=self._row_image(mod),
+                             values=(mod.current_version, mod.latest_version, status_label(mod.status)), tags=tags)
         self._refresh_update_button()
 
     def _update_summary(self):
@@ -969,22 +994,23 @@ class App(ctk.CTk):
 
     def _refresh_update_button(self):
         n = sum(1 for m in self.mods if m.path in self.checked and m.status == core.STATUS_UPDATE)
+        updatable = [m for m in self.mods if m.status == core.STATUS_UPDATE]
+        self.select_all_var.set(bool(updatable) and all(m.path in self.checked for m in updatable))
+        self.select_all_box.configure(state="normal" if updatable and not self.busy else "disabled")
         enabled = bool(n) and not self.busy
         self.update_btn.configure(text=t("update_selected_n", n=n) if n else t("update_selected"),
                                   state="normal" if enabled else "disabled",
                                   fg_color=ACCENT if enabled else ("gray75", "gray30"))
 
     def _on_tree_click(self, event):
-        if self.busy or self.tree.identify_region(event.x, event.y) != "cell":
+        if self.busy or self.tree.identify_region(event.x, event.y) not in ("tree", "cell"):
             return
         iid = self.tree.identify_row(event.y)
         mod = next((m for m in self.mods if m.path == iid), None)
         if not mod or mod.status != core.STATUS_UPDATE:
             return
         self.checked.symmetric_difference_update({iid})
-        values = list(self.tree.item(iid, "values"))
-        values[0] = "☑" if iid in self.checked else "☐"
-        self.tree.item(iid, values=values)
+        self.tree.item(iid, image=self._row_image(mod))
         self._refresh_update_button()
 
     def _toggle_all(self):
@@ -995,7 +1021,8 @@ class App(ctk.CTk):
             self.checked -= updatable
         else:
             self.checked |= updatable
-        self._fill_tree()
+        self._refresh_row_images()
+        self._refresh_update_button()
 
     def _sort_by(self, column: str):
         key, reverse = self.sort_key
