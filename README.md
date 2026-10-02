@@ -8,7 +8,8 @@ A desktop app to keep your Minecraft mods up to date with the latest versions fr
 
 - **Works with every Minecraft version**, including the new year-based versions (`26.1`, `26.3`, snapshots…). The version list comes live from Modrinth, nothing is hard-coded.
 - **Any loader**: Fabric, NeoForge, Forge, Quilt (also uses Fabric mods) and every other loader Modrinth supports.
-- **Graphical interface** (in Spanish) with light/dark theme, mod list, filter and per-mod selection.
+- **Graphical interface** with light/dark theme, mod list, filter and per-mod selection.
+- **14 languages**: English, Spanish, Portuguese, French, German, Italian, Dutch, Polish, Russian, Ukrainian, Turkish, Japanese, Korean and Chinese. The app and the Windows installer use the operating system's language automatically (English if it is not available); the app language can also be changed in Settings.
 - **Multiple profiles** (client, server, modpacks…), each with its own folder, Minecraft version and loader.
 - **Automatic detection** (default): the Minecraft version and loader are detected from the mods already in the profile folder every time you check for updates.
 - **Migrate a modpack to a new Minecraft version**: pick the new version and every mod is swapped for its build for that version.
@@ -40,7 +41,7 @@ python mod_updater.py
 3. Press **Check for updates**. Each mod shows its installed version, the available version and its status.
 4. Tick the mods you want and press **Update selected**.
 
-Settings (⚙): backups on/off, allow beta/alpha mod versions, show Minecraft snapshots, theme.
+Settings (⚙): backups on/off, allow beta/alpha mod versions, show Minecraft snapshots, theme and language.
 
 Backups are stored next to the mods folder, in `mod_updater_backups/<date>/`.
 Configuration is stored in `minecraft_mod_updater/mod_updater_config.json` inside `%APPDATA%` (Windows), `~/Library/Application Support` (macOS) or `~/.config` (Linux); configs from version 1.x are migrated automatically.
@@ -73,6 +74,7 @@ Aplicación de escritorio para mantener tus mods de Minecraft actualizados desde
 - Funciona con **todas las versiones de Minecraft**, incluidas las nuevas (`26.1`, `26.3`, snapshots…).
 - Fabric, NeoForge, Forge, Quilt y el resto de loaders de Modrinth.
 - Interfaz gráfica con tema claro/oscuro, lista de mods, filtro y selección individual.
+- **14 idiomas**: inglés, español, portugués, francés, alemán, italiano, neerlandés, polaco, ruso, ucraniano, turco, japonés, coreano y chino. La app y el instalador de Windows usan automáticamente el idioma del sistema operativo (inglés si no está disponible); el idioma de la app también se puede cambiar en Ajustes.
 - Varios perfiles, cada uno con su carpeta, versión de Minecraft y loader.
 - Detección automática (por defecto) de la versión de Minecraft y el loader a partir de los mods de la carpeta del perfil.
 - Migración de un modpack a otra versión de Minecraft.

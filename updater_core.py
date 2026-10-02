@@ -19,6 +19,8 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import requests
 
+from i18n import t
+
 try:
     # Use the operating system's certificate store so HTTPS keeps working
     # behind antivirus/proxy TLS inspection.
@@ -77,6 +79,7 @@ DEFAULT_CONFIG = {
     "allow_beta": False,
     "show_snapshots": False,
     "appearance": "dark",
+    "language": "system",
 }
 
 
@@ -156,11 +159,11 @@ class ModrinthClient:
             response = self.session.request(method, f"{MODRINTH_API_URL}{path}",
                                             timeout=REQUEST_TIMEOUT, **kwargs)
         except requests.RequestException as e:
-            raise ModrinthError(f"No se pudo conectar con Modrinth: {e}") from e
+            raise ModrinthError(t("err_connect", error=e)) from e
         if response.status_code == 429:
-            raise ModrinthError("Modrinth ha limitado las peticiones (429). Espera un minuto e inténtalo de nuevo.")
+            raise ModrinthError(t("err_rate_limit"))
         if response.status_code >= 400:
-            raise ModrinthError(f"Error de Modrinth {response.status_code}: {response.text[:200]}")
+            raise ModrinthError(t("err_http", code=response.status_code, text=response.text[:200]))
         return response.json()
 
     @staticmethod
@@ -217,10 +220,10 @@ class ModrinthClient:
                         h.update(chunk)
         except (requests.RequestException, OSError) as e:
             _silent_remove(destination)
-            raise ModrinthError(f"Fallo en la descarga: {e}") from e
+            raise ModrinthError(t("err_download", error=e)) from e
         if expected_sha512 and h.hexdigest() != expected_sha512:
             _silent_remove(destination)
-            raise ModrinthError("El archivo descargado está corrupto (hash no coincide)")
+            raise ModrinthError(t("err_corrupt"))
 
 
 def sort_loaders(names: Iterable[str]) -> List[str]:
@@ -366,7 +369,7 @@ def _hash_folder(mod_folder: str, progress: ProgressFn) -> Tuple[List[ModInfo], 
     mods: List[ModInfo] = []
     by_hash: Dict[str, ModInfo] = {}
     for i, path in enumerate(files):
-        progress(0.6 * i / max(len(files), 1), f"Calculando hash: {os.path.basename(path)}")
+        progress(0.6 * i / max(len(files), 1), t("prog_hashing", file=os.path.basename(path)))
         mod = ModInfo(path=path)
         try:
             mod.sha512 = calculate_hash(path)
@@ -421,7 +424,7 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
         return result
 
     hashes = list(by_hash.keys())
-    progress(0.65, "Identificando mods en Modrinth…")
+    progress(0.65, t("prog_identifying"))
     current = client.versions_from_hashes(hashes)
 
     if result.game_version is None or result.loader is None:
@@ -434,7 +437,7 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
     loaders = query_loaders(result.loader) if result.loader else []
     if result.game_version and loaders:
         version_types = ["release", "beta", "alpha"] if allow_beta else ["release"]
-        progress(0.75, "Buscando actualizaciones…")
+        progress(0.75, t("prog_checking"))
         latest = client.latest_versions(hashes, loaders, [result.game_version], version_types)
         if not allow_beta:
             # Mods that only publish betas would otherwise show as "no compatible".
@@ -443,7 +446,7 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
                 latest.update(client.latest_versions(missing, loaders, [result.game_version],
                                                      ["release", "beta", "alpha"]))
 
-    progress(0.85, "Obteniendo nombres de los mods…")
+    progress(0.85, t("prog_names"))
     project_ids = [v["project_id"] for v in current.values() if v.get("project_id")]
     try:
         projects = client.projects(project_ids) if project_ids else {}
@@ -457,7 +460,7 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
             mod.title = projects.get(mod.current.get("project_id"), {}).get("title", "")
         mod.status = determine_status(mod, result.game_version or "", loaders)
 
-    progress(1.0, "Listo")
+    progress(1.0, t("ready"))
     mods.sort(key=lambda m: (m.status != STATUS_UPDATE, m.display_name.lower()))
     return result
 
@@ -489,10 +492,10 @@ def update_mods(client: ModrinthClient, mods: List[ModInfo], mod_folder: str, ba
         os.makedirs(backup_dir, exist_ok=True)
 
     for i, mod in enumerate(mods):
-        progress(i / len(mods), f"Actualizando {mod.display_name}…")
+        progress(i / len(mods), t("prog_updating", mod=mod.display_name))
         file_info = primary_file(mod.latest or {})
         if not file_info:
-            mod.status, mod.error = STATUS_FAILED, "La versión no tiene archivos descargables"
+            mod.status, mod.error = STATUS_FAILED, t("err_no_files")
             continue
         new_name = file_info["filename"] + (".disabled" if mod.disabled else "")
         final_path = os.path.join(mod_folder, new_name)
@@ -513,7 +516,7 @@ def update_mods(client: ModrinthClient, mods: List[ModInfo], mod_folder: str, ba
             _silent_remove(part_path)
             mod.status, mod.error = STATUS_FAILED, str(e)
 
-    progress(1.0, "Listo")
+    progress(1.0, t("ready"))
     return backup_dir
 
 

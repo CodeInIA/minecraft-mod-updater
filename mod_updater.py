@@ -12,7 +12,9 @@ from typing import Callable, Dict, List, Optional
 
 import customtkinter as ctk
 
+import i18n
 import updater_core as core
+from i18n import t
 
 ACCENT = ("#2E9E5B", "#2E9E5B")
 ACCENT_HOVER = ("#247C48", "#3DB56C")
@@ -22,14 +24,9 @@ SIDEBAR_BG = ("#E6E9EC", "#1A1C1E")
 CARD_BG = ("#F5F6F7", "#232629")
 MUTED = ("#5F6670", "#9AA1A9")
 
-STATUS_LABELS = {
-    core.STATUS_UPDATE: "⬆  Actualizable",
-    core.STATUS_UP_TO_DATE: "✔  Al día",
-    core.STATUS_NOT_FOUND: "?  No está en Modrinth",
-    core.STATUS_NO_COMPATIBLE: "✖  Sin versión compatible",
-    core.STATUS_UPDATED: "✔  Actualizado",
-    core.STATUS_FAILED: "⚠  Error",
-}
+# Display order of statuses in the table
+STATUS_ORDER = [core.STATUS_UPDATE, core.STATUS_UP_TO_DATE, core.STATUS_NOT_FOUND,
+                core.STATUS_NO_COMPATIBLE, core.STATUS_UPDATED, core.STATUS_FAILED]
 # (light, dark) foreground per status
 STATUS_COLORS = {
     core.STATUS_UPDATE: ("#B26A00", "#F0B44C"),
@@ -41,17 +38,17 @@ STATUS_COLORS = {
 }
 
 
-AUTO_VERSION_LABEL = "Auto (detectar)"
-AUTO_LOADER_LABEL = "Auto (detectar)"
+def status_label(status: str) -> str:
+    return t(f"status_{status}")
 
 
-def to_label(value: str, auto_label: str) -> str:
-    return auto_label if not value or value == core.AUTO else value
+def to_label(value: str) -> str:
+    return t("auto") if not value or value == core.AUTO else value
 
 
 def from_label(label: str) -> str:
     label = label.strip()
-    return core.AUTO if not label or label.startswith("Auto") else label
+    return core.AUTO if not label or label == t("auto") else label
 
 
 def resource_path(name: str) -> str:
@@ -117,7 +114,7 @@ class ProfileDialog(Dialog):
     """Create or edit a profile. `self.result` holds the profile dict on save."""
 
     def __init__(self, app: "App", profile: Optional[Dict] = None):
-        super().__init__(app, "Editar perfil" if profile else "Nuevo perfil", 560, 370)
+        super().__init__(app, t("edit_profile") if profile else t("new_profile"), 580, 390)
         self.app = app
         self.original = profile
         self.result: Optional[Dict] = None
@@ -132,43 +129,40 @@ class ProfileDialog(Dialog):
         body.pack(fill="both", expand=True, padx=24, pady=20)
         body.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(body, text="Nuevo perfil" if not self.original else "Editar perfil",
+        ctk.CTkLabel(body, text=t("new_profile") if not self.original else t("edit_profile"),
                      font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 16))
 
-        ctk.CTkLabel(body, text="Nombre").grid(row=1, column=0, sticky="w", pady=6)
+        ctk.CTkLabel(body, text=t("name")).grid(row=1, column=0, sticky="w", pady=6)
         self.name_var = tk.StringVar(value=profile["name"])
-        ctk.CTkEntry(body, textvariable=self.name_var, placeholder_text="client, servidor, modpack…").grid(
+        ctk.CTkEntry(body, textvariable=self.name_var, placeholder_text=t("name_placeholder")).grid(
             row=1, column=1, columnspan=2, sticky="ew", pady=6)
 
-        ctk.CTkLabel(body, text="Carpeta de mods").grid(row=2, column=0, sticky="w", pady=6, padx=(0, 12))
+        ctk.CTkLabel(body, text=t("mods_folder")).grid(row=2, column=0, sticky="w", pady=6, padx=(0, 12))
         self.path_var = tk.StringVar(value=profile["path"])
         ctk.CTkEntry(body, textvariable=self.path_var).grid(row=2, column=1, sticky="ew", pady=6)
-        ctk.CTkButton(body, text="Examinar…", width=96, command=self._browse).grid(row=2, column=2, padx=(8, 0), pady=6)
+        ctk.CTkButton(body, text=t("browse"), width=96, command=self._browse).grid(row=2, column=2, padx=(8, 0), pady=6)
 
         ctk.CTkLabel(body, text="Minecraft").grid(row=3, column=0, sticky="w", pady=6)
-        self.version_var = tk.StringVar(value=to_label(profile["game_version"], AUTO_VERSION_LABEL))
+        self.version_var = tk.StringVar(value=to_label(profile["game_version"]))
         ctk.CTkComboBox(body, variable=self.version_var, values=app.version_choices()).grid(
             row=3, column=1, sticky="ew", pady=6)
-        self.detect_btn = ctk.CTkButton(body, text="Detectar", width=96, fg_color="transparent", border_width=1,
+        self.detect_btn = ctk.CTkButton(body, text=t("detect"), width=96, fg_color="transparent", border_width=1,
                                         text_color=("gray10", "gray90"), command=self._detect)
         self.detect_btn.grid(row=3, column=2, padx=(8, 0), pady=6)
 
-        ctk.CTkLabel(body, text="Loader").grid(row=4, column=0, sticky="w", pady=6)
-        self.loader_var = tk.StringVar(value=to_label(profile["loader"], AUTO_LOADER_LABEL))
+        ctk.CTkLabel(body, text=t("loader")).grid(row=4, column=0, sticky="w", pady=6)
+        self.loader_var = tk.StringVar(value=to_label(profile["loader"]))
         ctk.CTkOptionMenu(body, variable=self.loader_var, values=app.loader_choices()).grid(
             row=4, column=1, sticky="ew", pady=6)
 
-        self.hint = ctk.CTkLabel(body, text="Con «Auto» la versión y el loader se detectan de los mods de la carpeta "
-                                            "cada vez que buscas actualizaciones. Elige una versión concreta para "
-                                            "migrar los mods a otra versión de Minecraft.",
-                                 text_color=MUTED, wraplength=500, justify="left")
+        self.hint = ctk.CTkLabel(body, text=t("profile_hint"), text_color=MUTED, wraplength=520, justify="left")
         self.hint.grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
         buttons = ctk.CTkFrame(self, fg_color="transparent")
         buttons.pack(fill="x", padx=24, pady=(0, 20))
-        ctk.CTkButton(buttons, text="Guardar", fg_color=ACCENT, hover_color=ACCENT_HOVER,
+        ctk.CTkButton(buttons, text=t("save"), fg_color=ACCENT, hover_color=ACCENT_HOVER,
                       command=self._save).pack(side="right")
-        ctk.CTkButton(buttons, text="Cancelar", fg_color="transparent", border_width=1,
+        ctk.CTkButton(buttons, text=t("cancel"), fg_color="transparent", border_width=1,
                       text_color=("gray10", "gray90"), command=self.destroy).pack(side="right", padx=8)
         self.bind("<Return>", lambda _e: self._save())
         self.bind("<Escape>", lambda _e: self.destroy())
@@ -177,7 +171,7 @@ class ProfileDialog(Dialog):
 
     def _browse(self):
         initial = self.path_var.get() if os.path.isdir(self.path_var.get()) else os.path.dirname(core.DEFAULT_MINECRAFT_MODS)
-        folder = filedialog.askdirectory(parent=self, initialdir=initial, title="Selecciona la carpeta de mods")
+        folder = filedialog.askdirectory(parent=self, initialdir=initial, title=t("select_mods_folder"))
         if folder:
             self.path_var.set(os.path.normpath(folder))
             self._detect()
@@ -185,25 +179,25 @@ class ProfileDialog(Dialog):
     def _detect(self):
         path = self.path_var.get().strip()
         if not os.path.isdir(path):
-            self.hint.configure(text="Primero elige una carpeta de mods que exista.", text_color=DANGER)
+            self.hint.configure(text=t("pick_existing_folder"), text_color=DANGER)
             return
         self.detect_btn.configure(state="disabled", text="…")
-        self.hint.configure(text="Analizando mods…", text_color=MUTED)
+        self.hint.configure(text=t("analyzing"), text_color=MUTED)
 
         def done(result: Dict):
             if not self.winfo_exists():
                 return
-            self.detect_btn.configure(state="normal", text="Detectar")
+            self.detect_btn.configure(state="normal", text=t("detect"))
             if not result:
-                self.hint.configure(text="No se reconoció ningún mod en Modrinth.", text_color=DANGER)
+                self.hint.configure(text=t("no_mod_recognized"), text_color=DANGER)
                 return
-            self.hint.configure(text=f"Mods de la carpeta: Minecraft {result.get('game_version', '?')} · "
-                                     f"{result.get('loader', '?')}. Con «Auto» se usará esto automáticamente.",
+            self.hint.configure(text=t("detected_hint", version=result.get("game_version", "?"),
+                                       loader=result.get("loader", "?")),
                                 text_color=ACCENT)
 
         def failed(err: Exception):
             if self.winfo_exists():
-                self.detect_btn.configure(state="normal", text="Detectar")
+                self.detect_btn.configure(state="normal", text=t("detect"))
                 self.hint.configure(text=str(err), text_color=DANGER)
 
         self.app.run_task(lambda: core.detect_target(self.app.client, path), done, failed)
@@ -213,14 +207,14 @@ class ProfileDialog(Dialog):
         path = self.path_var.get().strip()
         game_version = self.version_var.get().strip()
         if not name:
-            return self._error("El perfil necesita un nombre.")
+            return self._error(t("err_name_required"))
         others = [p["name"] for p in self.app.config_data["profiles"] if p is not self.original]
         if name in others:
-            return self._error(f"Ya existe un perfil llamado «{name}».")
+            return self._error(t("err_name_exists", name=name))
         if not path:
-            return self._error("Indica la carpeta de mods.")
+            return self._error(t("err_folder_required"))
         if not game_version:
-            return self._error("Indica la versión de Minecraft.")
+            return self._error(t("err_version_required"))
         self.result = {"name": name, "path": path, "game_version": from_label(game_version),
                        "loader": from_label(self.loader_var.get())}
         self.destroy()
@@ -231,46 +225,53 @@ class ProfileDialog(Dialog):
 
 class SettingsDialog(Dialog):
     def __init__(self, app: "App"):
-        super().__init__(app, "Ajustes", 520, 440)
+        super().__init__(app, t("settings"), 560, 500)
         self.app = app
         cfg = app.config_data
 
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=24, pady=20)
 
-        ctk.CTkLabel(body, text="Ajustes", font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w", pady=(0, 14))
+        ctk.CTkLabel(body, text=t("settings"), font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w", pady=(0, 14))
 
         self.backup_var = tk.BooleanVar(value=cfg["backup_mods"])
-        ctk.CTkSwitch(body, text="Guardar copia de los mods sustituidos", variable=self.backup_var,
+        ctk.CTkSwitch(body, text=t("opt_backup"), variable=self.backup_var,
                       progress_color=ACCENT).pack(anchor="w", pady=6)
         self.beta_var = tk.BooleanVar(value=cfg["allow_beta"])
-        ctk.CTkSwitch(body, text="Permitir versiones beta/alpha de los mods", variable=self.beta_var,
+        ctk.CTkSwitch(body, text=t("opt_beta"), variable=self.beta_var,
                       progress_color=ACCENT).pack(anchor="w", pady=6)
         self.snap_var = tk.BooleanVar(value=cfg["show_snapshots"])
-        ctk.CTkSwitch(body, text="Mostrar snapshots de Minecraft en la lista de versiones", variable=self.snap_var,
+        ctk.CTkSwitch(body, text=t("opt_snapshots"), variable=self.snap_var,
                       progress_color=ACCENT).pack(anchor="w", pady=6)
 
-        ctk.CTkLabel(body, text="Tema").pack(anchor="w", pady=(14, 4))
-        names = {"dark": "Oscuro", "light": "Claro", "system": "Sistema"}
+        ctk.CTkLabel(body, text=t("theme")).pack(anchor="w", pady=(14, 4))
+        names = {"dark": t("theme_dark"), "light": t("theme_light"), "system": t("theme_system")}
         self.theme_names = {v: k for k, v in names.items()}
         self.theme = ctk.CTkSegmentedButton(body, values=list(names.values()), selected_color=ACCENT,
                                             selected_hover_color=ACCENT_HOVER)
-        self.theme.set(names.get(cfg["appearance"], "Oscuro"))
+        self.theme.set(names.get(cfg["appearance"], names["dark"]))
         self.theme.pack(anchor="w")
+
+        ctk.CTkLabel(body, text=t("language")).pack(anchor="w", pady=(14, 4))
+        languages = {i18n.SYSTEM: t("language_system"), **i18n.LANGUAGES}
+        self.language_codes = {v: k for k, v in languages.items()}
+        self.language_var = tk.StringVar(value=languages.get(cfg.get("language"), languages[i18n.SYSTEM]))
+        ctk.CTkOptionMenu(body, variable=self.language_var, values=list(languages.values()),
+                          width=220).pack(anchor="w")
 
         actions = ctk.CTkFrame(body, fg_color="transparent")
         actions.pack(anchor="w", pady=(22, 0))
-        ctk.CTkButton(actions, text="Abrir carpeta de configuración", fg_color="transparent", border_width=1,
+        ctk.CTkButton(actions, text=t("open_config_folder"), fg_color="transparent", border_width=1,
                       text_color=("gray10", "gray90"),
                       command=lambda: open_folder(core.CONFIG_DIR)).pack(side="left")
-        ctk.CTkButton(actions, text="Restablecer todo", fg_color=DANGER, hover_color=DANGER_HOVER,
+        ctk.CTkButton(actions, text=t("reset_all"), fg_color=DANGER, hover_color=DANGER_HOVER,
                       command=self._reset).pack(side="left", padx=8)
 
         buttons = ctk.CTkFrame(self, fg_color="transparent")
         buttons.pack(fill="x", padx=24, pady=(0, 20))
-        ctk.CTkButton(buttons, text="Guardar", fg_color=ACCENT, hover_color=ACCENT_HOVER,
+        ctk.CTkButton(buttons, text=t("save"), fg_color=ACCENT, hover_color=ACCENT_HOVER,
                       command=self._save).pack(side="right")
-        ctk.CTkButton(buttons, text="Cancelar", fg_color="transparent", border_width=1,
+        ctk.CTkButton(buttons, text=t("cancel"), fg_color="transparent", border_width=1,
                       text_color=("gray10", "gray90"), command=self.destroy).pack(side="right", padx=8)
         self.bind("<Escape>", lambda _e: self.destroy())
 
@@ -280,13 +281,19 @@ class SettingsDialog(Dialog):
         cfg["allow_beta"] = self.beta_var.get()
         cfg["show_snapshots"] = self.snap_var.get()
         cfg["appearance"] = self.theme_names[self.theme.get()]
+        language = self.language_codes[self.language_var.get()]
+        language_changed = language != cfg.get("language")
+        cfg["language"] = language
         core.save_config(cfg)
         self.destroy()
-        self.app.apply_appearance()
-        self.app.refresh_target_bar()
+        if language_changed:
+            self.app.rebuild_ui()
+        else:
+            self.app.apply_appearance()
+            self.app.refresh_target_bar()
 
     def _reset(self):
-        if messagebox.askyesno("Restablecer", "Se borrarán todos los perfiles y ajustes. ¿Continuar?",
+        if messagebox.askyesno(t("reset_title"), t("reset_confirm"),
                                icon="warning", parent=self):
             self.destroy()
             self.app.reset_all()
@@ -315,6 +322,7 @@ def open_folder(path: str) -> None:
 class App(ctk.CTk):
     def __init__(self):
         self.config_data = core.load_config()
+        i18n.set_language(self.config_data.get("language", i18n.SYSTEM))
         ctk.set_appearance_mode(self.config_data["appearance"])
         ctk.set_default_color_theme("green")
         super().__init__()
@@ -327,6 +335,7 @@ class App(ctk.CTk):
         self.client = core.ModrinthClient()
         self.tags = core.load_tag_cache()
         self.mods: List[core.ModInfo] = []
+        self.last_scan: Optional[core.ScanResult] = None
         self.checked: set = set()
         self.busy = False
         self.sort_key = ("status", False)
@@ -336,11 +345,7 @@ class App(ctk.CTk):
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
-        self._build_sidebar()
-        self._build_main()
-        self.apply_appearance()
-        self.refresh_profiles()
-        self._refresh_update_button()
+        self._build_ui()
 
         self.after(50, self._poll_queue)
         self.run_task(lambda: core.fetch_tags(self.client), self._on_tags, lambda _e: None)
@@ -376,7 +381,7 @@ class App(ctk.CTk):
 
     def _show_error(self, err: Exception):
         self._set_busy(False)
-        self.status_label.configure(text=f"Error: {err}")
+        self.status_label.configure(text=t("error_prefix", error=err))
         messagebox.showerror(core.APP_NAME, str(err), parent=self)
 
     def _set_busy(self, busy: bool):
@@ -393,6 +398,25 @@ class App(ctk.CTk):
             self._refresh_update_button()
 
     # ----- layout ---------------------------------------------------------- #
+
+    def _build_ui(self):
+        self._build_sidebar()
+        self._build_main()
+        self.apply_appearance()
+        self.refresh_profiles()
+        self._refresh_update_button()
+
+    def rebuild_ui(self):
+        """Recreate every widget, e.g. after changing the language. Keeps the scan results."""
+        i18n.set_language(self.config_data.get("language", i18n.SYSTEM))
+        for child in self.winfo_children():
+            child.destroy()
+        self._build_ui()
+        if self.mods:
+            self._fill_tree()
+            self._update_summary()
+            if self.last_scan:
+                self._show_scan_status(self.last_scan)
 
     def _build_sidebar(self):
         side = ctk.CTkFrame(self, width=230, corner_radius=0, fg_color=SIDEBAR_BG)
@@ -414,19 +438,19 @@ class App(ctk.CTk):
         titles = ctk.CTkFrame(brand, fg_color="transparent")
         titles.pack(side="left", padx=10)
         ctk.CTkLabel(titles, text="Mod Updater", font=ctk.CTkFont(size=17, weight="bold")).pack(anchor="w")
-        ctk.CTkLabel(titles, text="para Minecraft", text_color=MUTED, font=ctk.CTkFont(size=12)).pack(anchor="w")
+        ctk.CTkLabel(titles, text=t("app_subtitle"), text_color=MUTED, font=ctk.CTkFont(size=12)).pack(anchor="w")
 
-        ctk.CTkLabel(side, text="PERFILES", text_color=MUTED, font=ctk.CTkFont(size=11, weight="bold")).grid(
+        ctk.CTkLabel(side, text=t("profiles"), text_color=MUTED, font=ctk.CTkFont(size=11, weight="bold")).grid(
             row=1, column=0, sticky="w", padx=20, pady=(4, 4))
         self.profile_list = ctk.CTkScrollableFrame(side, fg_color="transparent")
         self.profile_list.grid(row=3, column=0, sticky="nsew", padx=8)
         self.profile_buttons: List[ctk.CTkButton] = []
 
-        self.add_btn = ctk.CTkButton(side, text="＋  Nuevo perfil", fg_color="transparent", border_width=1,
+        self.add_btn = ctk.CTkButton(side, text=t("new_profile_btn"), fg_color="transparent", border_width=1,
                                      text_color=("gray10", "gray90"), border_color=MUTED,
                                      command=self.add_profile)
         self.add_btn.grid(row=4, column=0, sticky="ew", padx=16, pady=(8, 6))
-        self.settings_btn = ctk.CTkButton(side, text="⚙  Ajustes", fg_color="transparent",
+        self.settings_btn = ctk.CTkButton(side, text=t("settings_btn"), fg_color="transparent",
                                           text_color=("gray10", "gray90"), hover_color=("gray80", "gray25"),
                                           anchor="w", command=lambda: SettingsDialog(self))
         self.settings_btn.grid(row=5, column=0, sticky="ew", padx=16, pady=(0, 6))
@@ -452,11 +476,11 @@ class App(ctk.CTk):
         actions = ctk.CTkFrame(header, fg_color="transparent")
         actions.grid(row=0, column=1, rowspan=2, sticky="e")
         ghost = dict(fg_color="transparent", border_width=1, text_color=("gray10", "gray90"), width=90)
-        ctk.CTkButton(actions, text="📂 Abrir", command=lambda: open_folder(self.current_profile()["path"])
+        ctk.CTkButton(actions, text=t("open"), command=lambda: open_folder(self.current_profile()["path"])
                       if self.current_profile() else None, **ghost).pack(side="left", padx=4)
-        self.edit_btn = ctk.CTkButton(actions, text="✎ Editar", command=self.edit_profile, **ghost)
+        self.edit_btn = ctk.CTkButton(actions, text=t("edit"), command=self.edit_profile, **ghost)
         self.edit_btn.pack(side="left", padx=4)
-        self.delete_btn = ctk.CTkButton(actions, text="🗑 Eliminar", command=self.delete_profile,
+        self.delete_btn = ctk.CTkButton(actions, text=t("delete"), command=self.delete_profile,
                                         fg_color="transparent", border_width=1, border_color=DANGER,
                                         text_color=DANGER, hover_color=("#F6DADA", "#3A2222"), width=90)
         self.delete_btn.pack(side="left", padx=(4, 0))
@@ -471,14 +495,14 @@ class App(ctk.CTk):
         self.version_box.pack(side="left")
         self.version_box.bind("<Return>", lambda _e: self._target_changed())
         self.version_box.bind("<FocusOut>", lambda _e: self._target_changed())
-        ctk.CTkLabel(bar, text="Loader", text_color=MUTED).pack(side="left", padx=(18, 8))
+        ctk.CTkLabel(bar, text=t("loader"), text_color=MUTED).pack(side="left", padx=(18, 8))
         self.loader_var = tk.StringVar()
         self.loader_menu = ctk.CTkOptionMenu(bar, variable=self.loader_var, width=135,
                                              command=lambda _v: self._target_changed())
         self.loader_menu.pack(side="left")
         self.detected_label = ctk.CTkLabel(bar, text="", text_color=MUTED)
         self.detected_label.pack(side="left", padx=(14, 0))
-        self.check_btn = ctk.CTkButton(bar, text="🔍  Buscar actualizaciones", height=36,
+        self.check_btn = ctk.CTkButton(bar, text=t("check_updates"), height=36,
                                        font=ctk.CTkFont(size=14, weight="bold"),
                                        fg_color=ACCENT, hover_color=ACCENT_HOVER, command=self.check_updates)
         self.check_btn.pack(side="right", padx=14)
@@ -486,10 +510,10 @@ class App(ctk.CTk):
         # Summary + search
         summary = ctk.CTkFrame(main, fg_color="transparent")
         summary.grid(row=2, column=0, sticky="ew", pady=(0, 8))
-        self.summary_label = ctk.CTkLabel(summary, text="Pulsa «Buscar actualizaciones» para analizar tus mods.",
+        self.summary_label = ctk.CTkLabel(summary, text=t("press_check"),
                                           text_color=MUTED, anchor="w")
         self.summary_label.pack(side="left")
-        self.search_entry = ctk.CTkEntry(summary, placeholder_text="🔎  Filtrar mods…", width=220)
+        self.search_entry = ctk.CTkEntry(summary, placeholder_text=t("filter_placeholder"), width=220)
         self.search_entry.pack(side="right")
         self.search_entry.bind("<KeyRelease>", lambda _e: self._fill_tree())
 
@@ -500,7 +524,8 @@ class App(ctk.CTk):
         table.grid_rowconfigure(0, weight=1)
         columns = ("sel", "name", "current", "latest", "status")
         self.tree = ttk.Treeview(table, columns=columns, show="headings", style="Mods.Treeview", selectmode="none")
-        headings = {"sel": "", "name": "Mod", "current": "Instalada", "latest": "Disponible", "status": "Estado"}
+        headings = {"sel": "", "name": t("col_mod"), "current": t("col_installed"), "latest": t("col_available"),
+                    "status": t("col_status")}
         widths = {"sel": 40, "name": 240, "current": 160, "latest": 160, "status": 190}
         for col in columns:
             self.tree.heading(col, text=headings[col], command=(lambda c=col: self._sort_by(c)) if col != "sel"
@@ -518,12 +543,12 @@ class App(ctk.CTk):
         footer = ctk.CTkFrame(main, fg_color="transparent")
         footer.grid(row=4, column=0, sticky="ew", pady=(12, 0))
         footer.grid_columnconfigure(0, weight=1)
-        self.status_label = ctk.CTkLabel(footer, text="Listo", text_color=MUTED, anchor="w")
+        self.status_label = ctk.CTkLabel(footer, text=t("ready"), text_color=MUTED, anchor="w")
         self.status_label.grid(row=0, column=0, sticky="ew")
         self.progress = ctk.CTkProgressBar(footer, progress_color=ACCENT, height=8)
         self.progress.set(0)
         self.progress.grid(row=1, column=0, sticky="ew", pady=(4, 0), padx=(0, 16))
-        self.update_btn = ctk.CTkButton(footer, text="Actualizar seleccionados", height=40, width=230,
+        self.update_btn = ctk.CTkButton(footer, text=t("update_selected"), height=40, width=230,
                                         font=ctk.CTkFont(size=14, weight="bold"), fg_color=ACCENT,
                                         hover_color=ACCENT_HOVER, state="disabled", command=self.update_selected)
         self.update_btn.grid(row=0, column=1, rowspan=2, sticky="e")
@@ -583,8 +608,8 @@ class App(ctk.CTk):
         self.add_btn.configure(state="normal" if len(self.config_data["profiles"]) < core.MAX_PROFILES else "disabled")
 
         has_profile = current is not None
-        self.profile_title.configure(text=current["name"] if has_profile else "Sin perfiles")
-        self.profile_path.configure(text=shorten_path(current["path"]) if has_profile else "Crea un perfil para empezar.")
+        self.profile_title.configure(text=current["name"] if has_profile else t("no_profiles"))
+        self.profile_path.configure(text=shorten_path(current["path"]) if has_profile else t("create_profile_hint"))
         for w in (self.edit_btn, self.delete_btn, self.check_btn):
             w.configure(state="normal" if has_profile else "disabled")
         self.refresh_target_bar()
@@ -594,8 +619,8 @@ class App(ctk.CTk):
         self.version_box.configure(values=self.version_choices())
         self.loader_menu.configure(values=self.loader_choices())
         if profile:
-            self.version_var.set(to_label(profile.get("game_version"), AUTO_VERSION_LABEL))
-            self.loader_var.set(to_label(profile.get("loader"), AUTO_LOADER_LABEL))
+            self.version_var.set(to_label(profile.get("game_version")))
+            self.loader_var.set(to_label(profile.get("loader")))
 
     def select_profile(self, name: str):
         if self.busy or name == self.config_data["current_profile"]:
@@ -632,8 +657,7 @@ class App(ctk.CTk):
         profile = self.current_profile()
         if not profile:
             return
-        if not messagebox.askyesno("Eliminar perfil",
-                                   f"¿Eliminar el perfil «{profile['name']}»?\n\nNo se borrará ningún archivo de mods.",
+        if not messagebox.askyesno(t("delete_profile_title"), t("delete_profile_confirm", name=profile["name"]),
                                    parent=self):
             return
         self.config_data["profiles"].remove(profile)
@@ -646,9 +670,8 @@ class App(ctk.CTk):
     def reset_all(self):
         self.config_data = core.reset_config()
         core.save_config(self.config_data)
-        self.apply_appearance()
-        self._clear_results()
-        self.refresh_profiles()
+        self.mods = []
+        self.rebuild_ui()
 
     # ----- target (Minecraft version / loader) ----------------------------- #
 
@@ -660,12 +683,12 @@ class App(ctk.CTk):
         versions = self.tags.get("game_versions", [])
         releases = [v["version"] for v in versions if v.get("version_type") == "release"]
         if not self.config_data.get("show_snapshots"):
-            return [AUTO_VERSION_LABEL] + releases
+            return [t("auto")] + releases
         others = [v["version"] for v in versions if v.get("version_type") != "release"][:40]
-        return [AUTO_VERSION_LABEL] + others + releases
+        return [t("auto")] + others + releases
 
     def loader_choices(self) -> List[str]:
-        return [AUTO_LOADER_LABEL] + (self.tags.get("loaders") or core.sort_loaders(core.PREFERRED_LOADERS))
+        return [t("auto")] + (self.tags.get("loaders") or core.sort_loaders(core.PREFERRED_LOADERS))
 
     def _target_changed(self):
         profile = self.current_profile()
@@ -679,7 +702,7 @@ class App(ctk.CTk):
             core.save_config(self.config_data)
             if self.mods:
                 self._clear_results()
-                self.summary_label.configure(text="Objetivo cambiado. Vuelve a buscar actualizaciones.")
+                self.summary_label.configure(text=t("target_changed"))
 
     # ----- checking & updating -------------------------------------------- #
 
@@ -690,13 +713,12 @@ class App(ctk.CTk):
         self._target_changed()
         path = profile["path"]
         if not os.path.isdir(path):
-            messagebox.showerror(core.APP_NAME, f"La carpeta del perfil no existe:\n{path}", parent=self)
+            messagebox.showerror(core.APP_NAME, t("folder_missing", path=path), parent=self)
             return
         game_version = profile["game_version"]
         known = {v["version"] for v in self.tags.get("game_versions", [])}
         if known and game_version != core.AUTO and game_version not in known:
-            if not messagebox.askyesno(core.APP_NAME, f"Modrinth no conoce la versión «{game_version}».\n"
-                                       "¿Buscar de todos modos?", parent=self):
+            if not messagebox.askyesno(core.APP_NAME, t("unknown_version", version=game_version), parent=self):
                 return
 
         self._clear_results()
@@ -708,24 +730,27 @@ class App(ctk.CTk):
 
     def _on_scan_done(self, result: core.ScanResult):
         self._set_busy(False)
+        self.last_scan = result
+        self.mods = result.mods
+        self.checked = {m.path for m in self.mods if m.status == core.STATUS_UPDATE}
+        self._fill_tree()
+        self._update_summary()
+        self._show_scan_status(result)
+
+    def _show_scan_status(self, result: core.ScanResult):
         mods = result.mods
-        self.mods = mods
         if result.detected:
             self.detected_label.configure(
                 text=f"→ {result.game_version or '?'} · {result.loader or '?'}",
                 text_color=ACCENT if result.game_version and result.loader else DANGER)
-        self.checked = {m.path for m in mods if m.status == core.STATUS_UPDATE}
-        self._fill_tree()
-        self._update_summary()
         if not mods:
-            self.status_label.configure(text="No hay archivos .jar en la carpeta del perfil.")
+            self.status_label.configure(text=t("no_jars"))
         elif not result.game_version or not result.loader:
-            self.status_label.configure(text="No se pudo detectar la versión: ningún mod está en Modrinth. "
-                                             "Elige la versión y el loader manualmente.")
+            self.status_label.configure(text=t("detect_failed"))
         else:
             pending = len(self.checked)
-            self.status_label.configure(text=f"{pending} actualización(es) disponible(s)." if pending
-                                        else "Todos los mods están al día.")
+            self.status_label.configure(text=t("updates_available", n=pending) if pending
+                                        else t("all_up_to_date"))
 
     def update_selected(self):
         profile = self.current_profile()
@@ -740,42 +765,43 @@ class App(ctk.CTk):
 
     def _on_update_done(self, mods: List[core.ModInfo], backup_dir: Optional[str]):
         self._set_busy(False)
+        self.last_scan = None
         self.checked = set()
         self._fill_tree()
         self._update_summary()
         ok = sum(1 for m in mods if m.status == core.STATUS_UPDATED)
         failed = [m for m in mods if m.status == core.STATUS_FAILED]
-        text = f"{ok} mod(s) actualizado(s)."
+        text = t("updated_count", n=ok)
         if failed:
-            text += f" {len(failed)} con errores."
+            text += " " + t("failed_count", n=len(failed))
         if backup_dir and ok:
-            text += " Copia de seguridad guardada."
+            text += " " + t("backup_saved")
         self.status_label.configure(text=text)
         if failed:
             details = "\n".join(f"• {m.display_name}: {m.error}" for m in failed[:15])
-            messagebox.showwarning(core.APP_NAME, f"Algunos mods no se pudieron actualizar:\n\n{details}", parent=self)
+            messagebox.showwarning(core.APP_NAME, t("some_failed", details=details), parent=self)
         elif backup_dir and ok and messagebox.askyesno(
-                core.APP_NAME, f"{ok} mod(s) actualizado(s).\n\nLos archivos antiguos están en:\n{backup_dir}\n\n"
-                "¿Abrir la carpeta de copias?", parent=self):
+                core.APP_NAME, t("updated_backup_prompt", n=ok, path=backup_dir), parent=self):
             open_folder(backup_dir)
 
     # ----- table ----------------------------------------------------------- #
 
     def _clear_results(self):
         self.mods = []
+        self.last_scan = None
         self.checked = set()
         self.tree.delete(*self.tree.get_children())
         self.detected_label.configure(text="")
         self.progress.set(0)
-        self.summary_label.configure(text="Pulsa «Buscar actualizaciones» para analizar tus mods.")
-        self.status_label.configure(text="Listo")
+        self.summary_label.configure(text=t("press_check"))
+        self.status_label.configure(text=t("ready"))
         self._refresh_update_button()
 
     def _visible_mods(self) -> List[core.ModInfo]:
         query = self.search_entry.get().strip().lower()
         mods = [m for m in self.mods if not query or query in m.display_name.lower() or query in m.filename.lower()]
         key, reverse = self.sort_key
-        order = list(STATUS_LABELS.keys())
+        order = STATUS_ORDER
         keyfn = {
             "name": lambda m: m.display_name.lower(),
             "current": lambda m: m.current_version.lower(),
@@ -791,8 +817,8 @@ class App(ctk.CTk):
         for i, mod in enumerate(self._visible_mods()):
             selectable = mod.status == core.STATUS_UPDATE
             mark = ("☑" if mod.path in self.checked else "☐") if selectable else ""
-            name = mod.display_name + ("  (desactivado)" if mod.disabled else "")
-            status = STATUS_LABELS.get(mod.status, mod.status)
+            name = mod.display_name + (f"  {t('disabled_suffix')}" if mod.disabled else "")
+            status = status_label(mod.status)
             tags = [mod.status] + (["odd"] if i % 2 else [])
             self._row_tags[mod.path] = tags
             self.tree.insert("", "end", iid=mod.path, values=(mark, name, mod.current_version, mod.latest_version, status),
@@ -800,25 +826,25 @@ class App(ctk.CTk):
         self._refresh_update_button()
 
     def _update_summary(self):
-        counts = {s: 0 for s in STATUS_LABELS}
+        counts = {s: 0 for s in STATUS_ORDER}
         for m in self.mods:
             counts[m.status] = counts.get(m.status, 0) + 1
-        parts = [f"{len(self.mods)} mods"]
+        parts = [t("sum_mods", n=len(self.mods))]
         if counts[core.STATUS_UPDATE]:
-            parts.append(f"{counts[core.STATUS_UPDATE]} con actualización")
+            parts.append(t("sum_update", n=counts[core.STATUS_UPDATE]))
         if counts[core.STATUS_UPDATED]:
-            parts.append(f"{counts[core.STATUS_UPDATED]} actualizados")
-        parts.append(f"{counts[core.STATUS_UP_TO_DATE]} al día")
+            parts.append(t("sum_updated", n=counts[core.STATUS_UPDATED]))
+        parts.append(t("sum_up_to_date", n=counts[core.STATUS_UP_TO_DATE]))
         if counts[core.STATUS_NO_COMPATIBLE]:
-            parts.append(f"{counts[core.STATUS_NO_COMPATIBLE]} sin versión compatible")
+            parts.append(t("sum_no_compatible", n=counts[core.STATUS_NO_COMPATIBLE]))
         if counts[core.STATUS_NOT_FOUND]:
-            parts.append(f"{counts[core.STATUS_NOT_FOUND]} fuera de Modrinth")
+            parts.append(t("sum_not_found", n=counts[core.STATUS_NOT_FOUND]))
         self.summary_label.configure(text="  ·  ".join(parts))
 
     def _refresh_update_button(self):
         n = sum(1 for m in self.mods if m.path in self.checked and m.status == core.STATUS_UPDATE)
         enabled = bool(n) and not self.busy
-        self.update_btn.configure(text=f"Actualizar seleccionados ({n})" if n else "Actualizar seleccionados",
+        self.update_btn.configure(text=t("update_selected_n", n=n) if n else t("update_selected"),
                                   state="normal" if enabled else "disabled",
                                   fg_color=ACCENT if enabled else ("gray75", "gray30"))
 
