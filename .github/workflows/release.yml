@@ -1,0 +1,127 @@
+name: Build & Release
+
+# Every push to main builds the app for Windows, macOS and Linux and publishes
+# a new GitHub release (vMAJOR.MINOR.RUN) with:
+#   - MinecraftModUpdater_Setup.exe      Windows installer (Inno Setup)
+#   - MinecraftModUpdater_macOS.dmg      macOS app (Apple Silicon)
+#   - MinecraftModUpdater_Linux.tar.gz   Linux x64 app + install.sh
+# Change VERSION_BASE to bump the major/minor version.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  VERSION_BASE: "2.0"
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: macOS
+            os: macos-latest
+          - name: Linux
+            # Older Ubuntu = older glibc, so the binary runs on more distros.
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # Newest Python 3.14.x patch release; bump the minor version manually.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          check-latest: true
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python --version
+          pip install --upgrade -r requirements.txt pyinstaller
+
+      - name: Write version file
+        shell: bash
+        run: echo "VERSION = \"$VERSION_BASE.${{ github.run_number }}\"" > app_version.py
+
+      - name: Build app
+        run: pyinstaller --noconfirm mod_updater.spec
+
+      - name: Package Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe", "$env:ProgramFiles\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe", "$env:ProgramFiles\Inno Setup*\ISCC.exe" | Select-Object -First 1
+          }
+          & $iscc.FullName "/DMyAppVersion=$env:VERSION_BASE.${{ github.run_number }}" installer-script.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force release | Out-Null
+          Move-Item installer/MinecraftModUpdater_Setup.exe release/
+
+      - name: Package macOS disk image
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dmg release
+          cp -R "dist/Minecraft Mod Updater.app" dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "Minecraft Mod Updater" -srcfolder dmg -ov -format UDZO release/MinecraftModUpdater_macOS.dmg
+
+      - name: Package Linux archive
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p pkg/MinecraftModUpdater release
+          cp -R dist/mod_updater pkg/MinecraftModUpdater/
+          cp packaging/linux/install.sh LICENSE pkg/MinecraftModUpdater/
+          chmod +x pkg/MinecraftModUpdater/install.sh pkg/MinecraftModUpdater/mod_updater/mod_updater
+          tar -czf release/MinecraftModUpdater_Linux.tar.gz -C pkg MinecraftModUpdater
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: release/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION_BASE }}.${{ github.run_number }}
+          name: Minecraft Mod Updater v${{ env.VERSION_BASE }}.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          make_latest: true
+          files: release/*
+          body: |
+            ## Descargas / Downloads
+            | Sistema | Archivo |
+            |---|---|
+            | Windows | `MinecraftModUpdater_Setup.exe`: ejecuta el instalador |
+            | macOS (Apple Silicon) | `MinecraftModUpdater_macOS.dmg`: arrastra la app a Aplicaciones. La primera vez: clic derecho → Abrir (o Ajustes → Privacidad y seguridad → Abrir igualmente) |
+            | Linux x64 | `MinecraftModUpdater_Linux.tar.gz`: descomprime y ejecuta `./install.sh` |
+
+            No necesitas tener Python instalado. / Python is not required.

@@ -2,101 +2,62 @@
 
 <img src="updater-logo.png" alt="Mod Updater Logo" width="150" />
 
-A powerful Python tool to automatically keep your Minecraft mods up to date with the latest versions from Modrinth.
+A desktop app to keep your Minecraft mods up to date with the latest versions from [Modrinth](https://modrinth.com).
 
 ## ✨ Features
 
-- **Multiple Profile Support**: Manage up to 10 different mod folder profiles (client, server, modpacks, etc.)
-- **Automatic Updates**: Automatically detect and update outdated mods
-- **Version Control**: Filter updates by Minecraft version and mod loader
-- **Backup System**: Create backups of your mods before updating
-- **Customizable Settings**: Configure update intervals, automatic updates, and more
-- **User-Friendly Interface**: Beautiful terminal UI with progress indicators and status information
+- **Works with every Minecraft version**, including the new year-based versions (`26.1`, `26.3`, snapshots…). The version list comes live from Modrinth, nothing is hard-coded.
+- **Any loader**: Fabric, NeoForge, Forge, Quilt (also uses Fabric mods) and every other loader Modrinth supports.
+- **Graphical interface** (in Spanish) with light/dark theme, mod list, filter and per-mod selection.
+- **Multiple profiles** (client, server, modpacks…), each with its own folder, Minecraft version and loader.
+- **Automatic detection** (default): the Minecraft version and loader are detected from the mods already in the profile folder every time you check for updates.
+- **Migrate a modpack to a new Minecraft version**: pick the new version and every mod is swapped for its build for that version.
+- **Safe updates**: downloads are verified by SHA-512, replaced files are moved to a backup folder, and disabled mods (`.jar.disabled`) stay disabled.
 
 ## 📥 Download
 
-**[Download v1.0.0 Release](https://github.com/CodeInIA/minecraft-mod-updater/releases/tag/v1.0.0)**
+| System | Download | How to install |
+|---|---|---|
+| Windows 10/11 | [MinecraftModUpdater_Setup.exe](https://github.com/CodeInIA/minecraft-mod-updater/releases/latest/download/MinecraftModUpdater_Setup.exe) | Run the installer. |
+| macOS (Apple Silicon) | [MinecraftModUpdater_macOS.dmg](https://github.com/CodeInIA/minecraft-mod-updater/releases/latest/download/MinecraftModUpdater_macOS.dmg) | Drag the app to Applications. The app is not signed: the first time, right-click → Open (or System Settings → Privacy & Security → Open Anyway). |
+| Linux x64 | [MinecraftModUpdater_Linux.tar.gz](https://github.com/CodeInIA/minecraft-mod-updater/releases/latest/download/MinecraftModUpdater_Linux.tar.gz) | Extract it and run `./install.sh` (installs for your user, no root). `./install.sh --uninstall` removes it. |
 
-Available as a Windows Installer with start menu shortcuts and desktop integration.
+Python is **not** required. Every commit to `main` automatically publishes a new release for all three systems — see [Releases](https://github.com/CodeInIA/minecraft-mod-updater/releases).
 
-## 🚀 Installation
+## 🚀 Running from source
 
-### Option 1: Windows Installer
-1. Download the installer (`MinecraftModUpdater_Setup.exe`) from the [releases page](https://github.com/CodeInIA/minecraft-mod-updater/releases)
-2. Run the installer and follow the on-screen instructions
-3. Launch from the Start Menu or desktop shortcut
+Requires Python 3.10 or newer.
 
-### Option 2: From Source Code
-1. Install Python from [python.org](https://www.python.org/downloads/) (version 3.7 or higher)
-2. Install the required packages:
 ```bash
-pip install requests rich packaging
-```
-3. Download and extract the source code
-4. Run the updater:
-```bash
+pip install -r requirements.txt
 python mod_updater.py
 ```
 
 ## 💻 Usage
 
-When you first run the tool, it will guide you through the configuration process:
+1. Create a profile (or edit the default `client` one) and choose its mods folder. The default is the official launcher's `mods` folder (`%APPDATA%\.minecraft\mods` on Windows, `~/Library/Application Support/minecraft/mods` on macOS, `~/.minecraft/mods` on Linux).
+2. Leave Minecraft version and loader on **Auto** to detect them from the mods in the folder, or choose a specific version to migrate your mods to it.
+3. Press **Check for updates**. Each mod shows its installed version, the available version and its status.
+4. Tick the mods you want and press **Update selected**.
 
-1. **Profile Configuration**: Set up one or more mod folder profiles
-   - Enter a name for each profile (e.g., "client", "server", "fabric115")
-   - Specify the path to the mod folder for each profile (relative or absolute)
-   - Choose which profile should be active by default
+Settings (⚙): backups on/off, allow beta/alpha mod versions, show Minecraft snapshots, theme.
 
-2. **Game Settings**:
-   - Set your Minecraft game version(s)
-   - Specify your mod loader(s) (fabric, forge, quilt)
+Backups are stored next to the mods folder, in `mod_updater_backups/<date>/`.
+Configuration is stored in `minecraft_mod_updater/mod_updater_config.json` inside `%APPDATA%` (Windows), `~/Library/Application Support` (macOS) or `~/.config` (Linux); configs from version 1.x are migrated automatically.
 
-3. **Update Settings**:
-   - Choose whether to automatically update mods
-   - Enable/disable backups before updating
-   - Set the update check interval
+## 📝 How it works
 
-After configuration, use the main menu to:
-- Check for updates for any of your configured profiles
-- Modify your configuration settings
-- Exit the application
+1. Each `.jar` in the folder is hashed (SHA-512) and identified on Modrinth.
+2. Modrinth is asked for the newest version of each mod for the selected Minecraft version and loader.
+3. A mod is updated when that version is different from the installed one and is either newer or the installed file was built for another Minecraft version or loader. Version numbers are never parsed, so any versioning scheme works.
 
-## ⚙️ Configuration
+Mods not published on Modrinth are listed as "not on Modrinth" and left untouched.
 
-The configuration is stored in `mod_updater_config.json` and includes:
+## 🛠️ Building
 
-- `mod_folders`: Dictionary of profile names and their mod folder paths
-- `current_folder`: The active profile
-- `game_versions`: List of Minecraft versions to check for updates
-- `loaders`: List of mod loaders (fabric, forge, quilt)
-- `auto_update`: Whether to update mods automatically
-- `backup_mods`: Whether to create backups before updating
-- `check_interval_days`: How often to check for updates (in days)
-- `last_check`: When the last update check was performed
+Locally: `pip install -r requirements.txt pyinstaller`, then `pyinstaller --noconfirm mod_updater.spec`. On Windows, `build_installer.bat` also builds the installer (requires [Inno Setup 6](https://jrsoftware.org/isinfo.php)) into `installer/`.
 
-## 📝 How It Works
-
-The updater works by:
-
-1. Calculating unique hashes for each mod file
-2. Querying the Modrinth API to identify the mods and their current versions
-3. Checking if newer versions are available for your specified game version and mod loader
-4. Downloading and replacing outdated mods with their newest versions
-
-## 🔒 Privacy & Security
-
-- This tool only communicates with the official Modrinth API
-- No personal data is collected or transmitted
-- All operations are performed locally on your machine
-
-## 🔍 Troubleshooting
-
-- **Mod Not Updating**: The mod might not be hosted on Modrinth, or the hash might not be recognized
-- **Update Errors**: Make sure you have write permissions to the mod folder
-
-## 🤝 Contributing
-
-Suggestions and bug reports are welcome through issues.
+On GitHub: `.github/workflows/release.yml` runs on every push to `main`. It builds the app with PyInstaller on Windows, macOS and Linux, packages it (Inno Setup installer, `.dmg`, `.tar.gz` with `packaging/linux/install.sh`) and publishes release `vMAJOR.MINOR.N`, where `MAJOR.MINOR` is `VERSION_BASE` in the workflow and `N` is the workflow run number.
 
 ## 📜 License
 
@@ -104,72 +65,39 @@ Copyright (c) 2025-2026 CodeInIA. Free for personal, non-commercial use; all oth
 
 ---
 
-Created with ❤️ for the Minecraft modding community
-
 # Minecraft Mod Updater (Español)
 
-Minecraft Mod Updater es una herramienta diseñada para facilitar la actualización automática de mods en Minecraft. Con esta herramienta, puedes mantener tus mods actualizados sin complicaciones.
+Aplicación de escritorio para mantener tus mods de Minecraft actualizados desde Modrinth.
 
 ## Características
-- Actualización automática de mods desde Modrinth
-- Soporte para múltiples perfiles (cliente, servidor, modpacks)
-- Configuración sencilla
-- Compatible con múltiples versiones de Minecraft y cargadores de mods
+- Funciona con **todas las versiones de Minecraft**, incluidas las nuevas (`26.1`, `26.3`, snapshots…).
+- Fabric, NeoForge, Forge, Quilt y el resto de loaders de Modrinth.
+- Interfaz gráfica con tema claro/oscuro, lista de mods, filtro y selección individual.
+- Varios perfiles, cada uno con su carpeta, versión de Minecraft y loader.
+- Detección automática (por defecto) de la versión de Minecraft y el loader a partir de los mods de la carpeta del perfil.
+- Migración de un modpack a otra versión de Minecraft.
+- Descargas verificadas, copia de seguridad de los mods sustituidos y respeto de los mods desactivados.
 
 ## Descargar
+| Sistema | Descarga | Instalación |
+|---|---|---|
+| Windows 10/11 | [MinecraftModUpdater_Setup.exe](https://github.com/CodeInIA/minecraft-mod-updater/releases/latest/download/MinecraftModUpdater_Setup.exe) | Ejecuta el instalador. |
+| macOS (Apple Silicon) | [MinecraftModUpdater_macOS.dmg](https://github.com/CodeInIA/minecraft-mod-updater/releases/latest/download/MinecraftModUpdater_macOS.dmg) | Arrastra la app a Aplicaciones. No está firmada: la primera vez, clic derecho → Abrir (o Ajustes → Privacidad y seguridad → Abrir igualmente). |
+| Linux x64 | [MinecraftModUpdater_Linux.tar.gz](https://github.com/CodeInIA/minecraft-mod-updater/releases/latest/download/MinecraftModUpdater_Linux.tar.gz) | Descomprime y ejecuta `./install.sh` (se instala para tu usuario, sin root). `./install.sh --uninstall` lo desinstala. |
 
-**[Descargar versión v1.0.0](https://github.com/CodeInIA/minecraft-mod-updater/releases/tag/v1.0.0)**
+**No** necesitas Python. Cada commit a `main` publica automáticamente una release nueva para los tres sistemas.
 
-Disponible como instalador para Windows con accesos directos en el menú inicio e integración con el escritorio.
+## Uso
+1. Crea un perfil (o edita `client`) y elige su carpeta de mods.
+2. Deja la versión y el loader en **Auto** para detectarlos de los mods de la carpeta, o elige una versión concreta para migrar los mods a ella.
+3. Pulsa **Buscar actualizaciones**.
+4. Marca los mods que quieras y pulsa **Actualizar seleccionados**.
 
-## Instalación
-
-### Opción 1: Instalador para Windows
-1. Descarga el instalador (`MinecraftModUpdater_Setup.exe`) desde la sección [Releases](https://github.com/CodeInIA/minecraft-mod-updater/releases)
-2. Ejecuta el instalador y sigue las instrucciones en pantalla
-3. Abre la aplicación desde el menú Inicio o el escritorio
-
-### Opción 2: Desde el código fuente
-1. Instala Python desde [python.org](https://www.python.org/downloads/) (versión 3.7 o superior)
-2. Instala las dependencias necesarias:
+## Desde el código fuente
 ```bash
-pip install requests rich packaging
-```
-3. Descarga y extrae el código fuente
-4. Ejecuta:
-```bash
+pip install -r requirements.txt
 python mod_updater.py
 ```
 
-## Uso
-
-1. Abre la aplicación Minecraft Mod Updater
-2. En el primer uso, se te guiará por el proceso de configuración:
-   - Configura las carpetas de mods para tus perfiles
-   - Selecciona las versiones de Minecraft y cargadores de mods
-   - Establece las preferencias de actualización
-3. Usa el menú principal para verificar actualizaciones o cambiar la configuración
-
-## Requisitos
-- Windows 7 o superior para las versiones precompiladas
-- Python 3.7 o superior (solo para ejecutar desde el código fuente)
-
-## Contribuir
-Si deseas contribuir al proyecto:
-
-1. Clona este repositorio:
-```bash
-git clone https://github.com/CodeInIA/minecraft-mod-updater.git
-```
-2. Instala las dependencias necesarias:
-```bash
-pip install requests rich packaging
-```
-3. Realiza tus cambios y envía un pull request
-
 ## Licencia
 Copyright (c) 2025-2026 CodeInIA. Uso gratuito solo personal y no comercial; resto de derechos reservados. Consulta [LICENSE](LICENSE).
-
----
-
-¡Gracias por usar Minecraft Mod Updater! Si tienes alguna pregunta o problema, no dudes en abrir un [issue](https://github.com/CodeInIA/minecraft-mod-updater/issues).

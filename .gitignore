@@ -1,19 +1,17 @@
-# Ignorar archivos y carpetas relacionados con el instalador
+# Build output
 installer/
-*.iss
-*.exe
-
-# Ignorar el script para construir el instalador
-build_installer.bat
-
-# Ignorar archivos generados por PyInstaller
 build/
 dist/
-*.spec
+*.exe
 
-# Ignorar archivos temporales y de sistema
+# Generated at build time by the release workflow
+app_version.py
+
+# Python / OS temporary files
 *.pyc
 __pycache__/
+.venv/
+venv/
 *.log
 *.tmp
 .DS_Store
