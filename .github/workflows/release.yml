@@ -11,6 +11,9 @@ name: Build & Release
 #   - "#minor" in a commit message since the last release:   v2.0.4 -> v2.1.0
 #   - "#major" in a commit message since the last release:   v2.1.0 -> v3.0.0
 # When run by hand (Actions -> Run workflow) the bump can be chosen.
+# A release is only published when something that ends up in the app changed since
+# the last one: pushes that only touch documentation, tests or CI files run the tests
+# and stop there. Running the workflow by hand always publishes.
 
 on:
   push:
@@ -42,6 +45,7 @@ jobs:
     outputs:
       version: ${{ steps.next.outputs.version }}
       changelog: ${{ steps.changelog.outputs.changelog }}
+      release: ${{ steps.changes.outputs.release }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -76,6 +80,28 @@ jobs:
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
           echo "Latest tag: v${latest:-none} | bump: $bump | new version: v$next"
 
+      - name: Did the app change since the last release?
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          LATEST: ${{ steps.next.outputs.latest }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ] || [ -z "$LATEST" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "Release forced (manual run or first release)."
+            exit 0
+          fi
+          # Files that do not end up in the app: documentation, tests and CI.
+          not_app='(\.md$|^docs/|^tests/|^\.github/|^\.gitignore$|^requirements-dev\.txt$)'
+          app_changes=$(git diff --name-only "v$LATEST" HEAD | grep -Ev "$not_app" || true)
+          if [ -n "$app_changes" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "App files changed since v$LATEST:"; echo "$app_changes"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "Only documentation/tests/CI changed since v$LATEST: no release."
+          fi
+
       - name: Changelog from commits since the last release
         id: changelog
         env:
@@ -92,6 +118,7 @@ jobs:
   build:
     name: Build (${{ matrix.name }})
     needs: version
+    if: needs.version.outputs.release == 'true'
     strategy:
       fail-fast: true
       matrix:
@@ -223,6 +250,7 @@ jobs:
   release:
     name: Publish release
     needs: [version, build]
+    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
