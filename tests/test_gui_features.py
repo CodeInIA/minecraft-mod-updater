@@ -51,11 +51,12 @@ def test_changelog_dialog(app, tmp_path, monkeypatch):
     monkeypatch.setattr(core, "changelog_entries", lambda *a: [
         {"version": "0.9", "date": "2026-09-01", "type": "release", "changelog": "Fixed [#1](https://x) crash"}])
     app._on_scan_done(scan_with_dependency(tmp_path))
+    import time
     dialog = mod_updater.ChangelogDialog(app, app.mods[0], "26.3", ["fabric"])
-    for _ in range(40):
+    end = time.time() + 5  # the changelog is loaded in the background and picked up every 50 ms
+    while time.time() < end and "Fixed" not in dialog.text.get("1.0", "end"):
         app.update()
-        if "Fixed" in dialog.text.get("1.0", "end"):
-            break
+        time.sleep(0.02)
     text = dialog.text.get("1.0", "end")
     assert "0.9" in text and "Fixed #1 crash" in text  # markdown links shown as plain text
     dialog.destroy()
