@@ -7,7 +7,7 @@ import sys
 import threading
 import tkinter as tk
 import webbrowser
-from tkinter import filedialog, messagebox, ttk
+from tkinter import colorchooser, filedialog, messagebox, ttk
 from tkinter import font as tkfont
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -120,7 +120,7 @@ class ProfileDialog(Dialog):
     """Create or edit a profile. `self.result` holds the profile dict on save."""
 
     def __init__(self, app: "App", profile: Optional[Dict] = None):
-        super().__init__(app, t("edit_profile") if profile else t("new_profile"), 580, 390)
+        super().__init__(app, t("edit_profile") if profile else t("new_profile"), 580, 440)
         self.app = app
         self.original = profile
         self.result: Optional[Dict] = None
@@ -129,7 +129,9 @@ class ProfileDialog(Dialog):
             "path": core.DEFAULT_MINECRAFT_MODS if not app.config_data["profiles"] else "",
             "game_version": core.AUTO,
             "loader": core.AUTO,
+            "color": core.next_profile_color(app.config_data["profiles"]),
         }
+        self.color = profile.get("color") or core.PROFILE_COLORS[0]
 
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=24, pady=20)
@@ -161,8 +163,24 @@ class ProfileDialog(Dialog):
         ctk.CTkOptionMenu(body, variable=self.loader_var, values=app.loader_choices()).grid(
             row=4, column=1, sticky="ew", pady=6)
 
+        ctk.CTkLabel(body, text=t("color")).grid(row=5, column=0, sticky="w", pady=6)
+        swatches = ctk.CTkFrame(body, fg_color="transparent")
+        swatches.grid(row=5, column=1, columnspan=2, sticky="w", pady=6)
+        self.swatches: Dict[str, ctk.CTkFrame] = {}
+        for color in core.PROFILE_COLORS:
+            swatch = ctk.CTkFrame(swatches, width=24, height=24, corner_radius=6, fg_color=color,
+                                  border_width=2, cursor="hand2")
+            swatch.pack(side="left", padx=(0, 6))
+            swatch.bind("<Button-1>", lambda _e, c=color: self._set_color(c))
+            self.swatches[color] = swatch
+        self.custom_btn = ctk.CTkButton(swatches, text="…", width=32, height=24, corner_radius=6,
+                                        fg_color="transparent", border_width=2,
+                                        text_color=("gray10", "gray90"), command=self._pick_custom_color)
+        self.custom_btn.pack(side="left")
+        self._set_color(self.color)
+
         self.hint = ctk.CTkLabel(body, text=t("profile_hint"), text_color=MUTED, wraplength=520, justify="left")
-        self.hint.grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        self.hint.grid(row=6, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
         buttons = ctk.CTkFrame(self, fg_color="transparent")
         buttons.pack(fill="x", padx=24, pady=(0, 20))
@@ -174,6 +192,19 @@ class ProfileDialog(Dialog):
         self.bind("<Escape>", lambda _e: self.destroy())
         if os.path.isdir(self.path_var.get()):
             self.after(300, self._detect)
+
+    def _set_color(self, color: str):
+        self.color = color
+        for value, swatch in self.swatches.items():
+            swatch.configure(border_color=("gray10", "gray95") if value == color else value)
+        custom = color not in self.swatches
+        self.custom_btn.configure(fg_color=color if custom else "transparent",
+                                  border_color=("gray10", "gray95") if custom else ("gray60", "gray40"))
+
+    def _pick_custom_color(self):
+        picked = colorchooser.askcolor(color=self.color, parent=self, title=t("custom_color"))[1]
+        if picked:
+            self._set_color(picked.upper())
 
     def _browse(self):
         initial = self.path_var.get() if os.path.isdir(self.path_var.get()) else os.path.dirname(core.DEFAULT_MINECRAFT_MODS)
@@ -222,7 +253,7 @@ class ProfileDialog(Dialog):
         if not game_version:
             return self._error(t("err_version_required"))
         self.result = {"name": name, "path": path, "game_version": from_label(game_version),
-                       "loader": from_label(self.loader_var.get())}
+                       "loader": from_label(self.loader_var.get()), "color": self.color}
         self.destroy()
 
     def _error(self, text: str):
@@ -443,8 +474,6 @@ class App(ctk.CTk):
         for widget in (self.check_btn, self.add_btn, self.edit_btn, self.delete_btn, self.version_box,
                        self.loader_menu, self.settings_btn, self.select_all_box):
             widget.configure(state=state)
-        for btn in self.profile_buttons:
-            btn.configure(state=state)
         if busy:
             self.update_btn.configure(state="disabled")
         else:
@@ -500,7 +529,8 @@ class App(ctk.CTk):
             row=1, column=0, sticky="w", padx=20, pady=(4, 4))
         self.profile_list = ctk.CTkScrollableFrame(side, fg_color="transparent")
         self.profile_list.grid(row=3, column=0, sticky="nsew", padx=8)
-        self.profile_buttons: List[ctk.CTkButton] = []
+        self.profile_rows: List[ctk.CTkFrame] = []
+        self._drag: Optional[Dict] = None
 
         self.add_btn = ctk.CTkButton(side, text=t("new_profile_btn"), fg_color="transparent", border_width=1,
                                      text_color=("gray10", "gray90"), border_color=MUTED,
@@ -542,8 +572,12 @@ class App(ctk.CTk):
         header = ctk.CTkFrame(main, fg_color="transparent")
         header.grid(row=1, column=0, sticky="ew")
         header.grid_columnconfigure(0, weight=1)
-        self.profile_title = ctk.CTkLabel(header, text="", font=ctk.CTkFont(size=24, weight="bold"), anchor="w")
-        self.profile_title.grid(row=0, column=0, sticky="w")
+        title_row = ctk.CTkFrame(header, fg_color="transparent")
+        title_row.grid(row=0, column=0, sticky="w")
+        self.profile_swatch = ctk.CTkFrame(title_row, width=20, height=20, corner_radius=6, fg_color=ACCENT)
+        self.profile_swatch.pack(side="left", padx=(0, 10))
+        self.profile_title = ctk.CTkLabel(title_row, text="", font=ctk.CTkFont(size=24, weight="bold"), anchor="w")
+        self.profile_title.pack(side="left")
         self.profile_path = ctk.CTkLabel(header, text="", text_color=MUTED, anchor="w", cursor="hand2")
         self.profile_path.grid(row=1, column=0, sticky="w")
         self.profile_path.bind("<Button-1>", lambda _e: open_folder(self.current_profile()["path"])
@@ -679,29 +713,97 @@ class App(ctk.CTk):
         return None
 
     def refresh_profiles(self):
-        for btn in self.profile_buttons:
-            btn.destroy()
-        self.profile_buttons = []
+        for row in self.profile_rows:
+            row.destroy()
+        self.profile_rows = []
         current = self.current_profile()
         for profile in self.config_data["profiles"]:
-            active = current is profile
-            btn = ctk.CTkButton(
-                self.profile_list, text=f"  {profile['name']}", anchor="w", height=36,
-                fg_color=ACCENT if active else "transparent",
-                hover_color=ACCENT_HOVER if active else ("gray80", "gray25"),
-                text_color=("white", "white") if active else ("gray10", "gray90"),
-                font=ctk.CTkFont(size=14, weight="bold" if active else "normal"),
-                command=lambda name=profile["name"]: self.select_profile(name))
-            btn.pack(fill="x", pady=2)
-            self.profile_buttons.append(btn)
+            row = self._make_profile_row(profile, current is profile)
+            row.pack(fill="x", pady=2)
+            self.profile_rows.append(row)
         self.add_btn.configure(state="normal" if len(self.config_data["profiles"]) < core.MAX_PROFILES else "disabled")
 
         has_profile = current is not None
+        if has_profile:
+            self.profile_swatch.configure(fg_color=current.get("color") or ACCENT)
+            self.profile_swatch.pack(side="left", padx=(0, 10), before=self.profile_title)
+        else:
+            self.profile_swatch.pack_forget()
         self.profile_title.configure(text=current["name"] if has_profile else t("no_profiles"))
         self.profile_path.configure(text=shorten_path(current["path"]) if has_profile else t("create_profile_hint"))
         for w in (self.edit_btn, self.delete_btn, self.check_btn):
             w.configure(state="normal" if has_profile else "disabled")
         self.refresh_target_bar()
+
+    def _make_profile_row(self, profile: Dict, active: bool) -> ctk.CTkFrame:
+        """Sidebar entry: color square + name. Click selects it, dragging reorders the profiles."""
+        idle_bg = ACCENT if active else "transparent"
+        hover_bg = ACCENT_HOVER if active else ("gray80", "gray25")
+        row = ctk.CTkFrame(self.profile_list, height=38, corner_radius=8, fg_color=idle_bg)
+        row.pack_propagate(False)
+        swatch = ctk.CTkFrame(row, width=16, height=16, corner_radius=5, fg_color=profile.get("color") or ACCENT,
+                              border_width=2 if active else 0, border_color=("white", "white"))
+        swatch.pack(side="left", padx=(12, 10))
+        label = ctk.CTkLabel(row, text=profile["name"], anchor="w",
+                             text_color=("white", "white") if active else ("gray10", "gray90"),
+                             font=ctk.CTkFont(size=14, weight="bold" if active else "normal"))
+        label.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        row.profile_name = profile["name"]
+        row.idle_bg, row.hover_bg = idle_bg, hover_bg
+
+        def leave(event):
+            under = self.winfo_containing(event.x_root, event.y_root)
+            if not (under and str(under).startswith(str(row))) and self._drag is None:
+                row.configure(fg_color=idle_bg)
+
+        for widget in (row, swatch, label):
+            widget.bind("<Enter>", lambda _e: row.configure(fg_color=hover_bg))
+            widget.bind("<Leave>", leave)
+            widget.bind("<ButtonPress-1>", lambda e: self._profile_press(e, row))
+            widget.bind("<B1-Motion>", lambda e: self._profile_drag(e, row))
+            widget.bind("<ButtonRelease-1>", lambda e: self._profile_release(e, row))
+        return row
+
+    def _profile_press(self, event, row):
+        self._drag = {"row": row, "y": event.y_root, "moved": False}
+
+    def _profile_drag(self, event, row):
+        drag = self._drag
+        if not drag or self.busy:
+            return
+        if not drag["moved"]:
+            if abs(event.y_root - drag["y"]) < 6:  # small movements still count as a click
+                return
+            drag["moved"] = True
+            self.configure(cursor="fleur")
+            row.configure(fg_color=row.hover_bg)
+        rows = self.profile_rows
+        current = rows.index(row)
+        others = [r for r in rows if r is not row]
+        target = sum(1 for r in others if event.y_root > r.winfo_rooty() + r.winfo_height() / 2)
+        if target != current:
+            self.move_profile(current, target, save=False)
+
+    def _profile_release(self, event, row):
+        drag, self._drag = self._drag, None
+        self.configure(cursor="")
+        if drag and drag["moved"]:
+            core.save_config(self.config_data)
+            self.refresh_profiles()
+        elif drag:
+            self.select_profile(row.profile_name)
+
+    def move_profile(self, old_index: int, new_index: int, save: bool = True):
+        """Move a profile in the list (and in the sidebar) from one position to another."""
+        profiles = self.config_data["profiles"]
+        profiles.insert(new_index, profiles.pop(old_index))
+        self.profile_rows.insert(new_index, self.profile_rows.pop(old_index))
+        for r in self.profile_rows:
+            r.pack_forget()
+        for r in self.profile_rows:
+            r.pack(fill="x", pady=2)
+        if save:
+            core.save_config(self.config_data)
 
     def refresh_target_bar(self):
         profile = self.current_profile()

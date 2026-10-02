@@ -68,11 +68,15 @@ MOD_EXTENSIONS = (".jar", ".jar.disabled")
 # Profile value meaning "detect from the mods in the folder".
 AUTO = "auto"
 MAX_PROFILES = 20
+# Colors offered for profiles (and given automatically to profiles without one)
+PROFILE_COLORS = ["#2E9E5B", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6",
+                  "#EC4899", "#14B8A6", "#F97316", "#84CC16", "#64748B"]
 
 DEFAULT_CONFIG = {
     "config_version": 2,
     "profiles": [
-        {"name": "client", "path": DEFAULT_MINECRAFT_MODS, "game_version": AUTO, "loader": AUTO},
+        {"name": "client", "path": DEFAULT_MINECRAFT_MODS, "game_version": AUTO, "loader": AUTO,
+         "color": PROFILE_COLORS[0]},
     ],
     "current_profile": "client",
     "backup_mods": True,
@@ -126,7 +130,19 @@ def load_config() -> Dict:
     for profile in config["profiles"]:
         profile["game_version"] = profile.get("game_version") or AUTO
         profile["loader"] = profile.get("loader") or AUTO
+        if not profile.get("color"):
+            # Avoid the colors of every other profile, including the ones listed after this one
+            profile["color"] = next_profile_color(config["profiles"])
     return config
+
+
+def next_profile_color(profiles: List[Dict]) -> str:
+    """First palette color not used by the given profiles (cycling when all are taken)."""
+    used = {p.get("color") for p in profiles}
+    for color in PROFILE_COLORS:
+        if color not in used:
+            return color
+    return PROFILE_COLORS[len(profiles) % len(PROFILE_COLORS)]
 
 
 def save_config(config: Dict) -> None:

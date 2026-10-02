@@ -105,3 +105,22 @@ def test_click_on_name_opens_modrinth_and_checkbox_toggles(app, tmp_path, monkey
     app.tree.event_generate("<Button-1>", x=name_x, y=y)
     assert opened == [mod.page_url]
     assert (mod.path in app.checked) != was_checked  # opening the link does not toggle the row
+
+
+def test_profiles_can_be_reordered(app):
+    app.config_data["profiles"] = [{"name": n, "path": "x", "game_version": core.AUTO, "loader": core.AUTO,
+                                    "color": c} for n, c in zip("abc", core.PROFILE_COLORS)]
+    app.config_data["current_profile"] = "a"
+    app.refresh_profiles()
+    app.move_profile(0, 2)
+    assert [p["name"] for p in app.config_data["profiles"]] == ["b", "c", "a"]
+    assert [r.profile_name for r in app.profile_rows] == ["b", "c", "a"]
+    assert [p["name"] for p in core.load_config()["profiles"]] == ["b", "c", "a"]  # saved
+
+
+def test_profile_dialog_returns_color(app):
+    import mod_updater
+    dialog = mod_updater.ProfileDialog(app, app.current_profile())
+    dialog._set_color("#123456")
+    dialog._save()
+    assert dialog.result["color"] == "#123456"

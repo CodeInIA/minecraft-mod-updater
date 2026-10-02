@@ -242,3 +242,20 @@ def test_update_without_backup_deletes_old_files(tmp_path):
 ])
 def test_modrinth_page_url(project, project_id, expected):
     assert core.modrinth_page_url(project, project_id) == expected
+
+
+def test_profiles_without_color_get_distinct_colors(fresh_config):
+    os.makedirs(core.CONFIG_DIR, exist_ok=True)
+    profiles = [{"name": f"p{i}", "path": "x"} for i in range(3)]
+    profiles[1]["color"] = core.PROFILE_COLORS[0]  # an existing choice is kept
+    with open(core.CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"config_version": 2, "profiles": profiles, "current_profile": "p0"}, f)
+    colors = [p["color"] for p in core.load_config()["profiles"]]
+    assert colors[1] == core.PROFILE_COLORS[0]
+    assert len(set(colors)) == 3
+
+
+def test_next_profile_color_cycles_when_palette_is_used_up():
+    used = [{"color": c} for c in core.PROFILE_COLORS]
+    assert core.next_profile_color([]) == core.PROFILE_COLORS[0]
+    assert core.next_profile_color(used) in core.PROFILE_COLORS
