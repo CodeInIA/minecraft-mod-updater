@@ -14,6 +14,7 @@ A desktop app to keep your Minecraft mods up to date with the latest versions fr
 - **Automatic detection** (default): the Minecraft version and loader are detected from the mods already in the profile folder every time you check for updates.
 - **Migrate a modpack to a new Minecraft version**: pick the new version and every mod is swapped for its build for that version.
 - **Safe updates**: downloads are verified by SHA-512, replaced files are moved to a backup folder, and disabled mods (`.jar.disabled`) stay disabled.
+- **Updates itself**: at startup the app checks GitHub for a new version and shows a notice with an **Update now** button. In Settings you can make it install new versions automatically instead (Windows will ask for administrator permission).
 
 ## 📥 Download
 
@@ -41,7 +42,7 @@ python mod_updater.py
 3. Press **Check for updates**. Each mod shows its installed version, the available version and its status.
 4. Tick the mods you want and press **Update selected**.
 
-Settings (⚙): backups on/off, allow beta/alpha mod versions, show Minecraft snapshots, theme and language.
+Settings (⚙): backups on/off, allow beta/alpha mod versions, show Minecraft snapshots, theme, language, and automatic or manual updates of the app.
 
 Backups are stored next to the mods folder, in `mod_updater_backups/<date>/`.
 Configuration is stored in `minecraft_mod_updater/mod_updater_config.json` inside `%APPDATA%` (Windows), `~/Library/Application Support` (macOS) or `~/.config` (Linux); configs from version 1.x are migrated automatically.
@@ -79,6 +80,7 @@ Aplicación de escritorio para mantener tus mods de Minecraft actualizados desde
 - Detección automática (por defecto) de la versión de Minecraft y el loader a partir de los mods de la carpeta del perfil.
 - Migración de un modpack a otra versión de Minecraft.
 - Descargas verificadas, copia de seguridad de los mods sustituidos y respeto de los mods desactivados.
+- **Se actualiza sola**: al iniciarse comprueba en GitHub si hay una versión nueva y muestra un aviso con el botón **Actualizar ahora**. En Ajustes puedes hacer que instale las versiones nuevas automáticamente (Windows pedirá permiso de administrador).
 
 ## Descargar
 | Sistema | Descarga | Instalación |

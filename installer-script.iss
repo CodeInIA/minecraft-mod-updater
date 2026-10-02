@@ -91,3 +91,5 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; Silent install = update started from inside the app: reopen it as the normal (non-admin) user
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser skipifnotsilent

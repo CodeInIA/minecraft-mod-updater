@@ -6,12 +6,14 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
 from typing import Callable, Dict, List, Optional
 
 import customtkinter as ctk
 
+import app_updater
 import i18n
 import updater_core as core
 from i18n import t
@@ -225,7 +227,7 @@ class ProfileDialog(Dialog):
 
 class SettingsDialog(Dialog):
     def __init__(self, app: "App"):
-        super().__init__(app, t("settings"), 560, 500)
+        super().__init__(app, t("settings"), 600, 570)
         self.app = app
         cfg = app.config_data
 
@@ -259,6 +261,19 @@ class SettingsDialog(Dialog):
         ctk.CTkOptionMenu(body, variable=self.language_var, values=list(languages.values()),
                           width=220).pack(anchor="w")
 
+        ctk.CTkLabel(body, text=t("app_updates_section")).pack(anchor="w", pady=(14, 4))
+        self.app_auto_update_var = tk.BooleanVar(value=cfg.get("app_auto_update", False))
+        ctk.CTkSwitch(body, text=t("opt_auto_update_app"), variable=self.app_auto_update_var,
+                      progress_color=ACCENT).pack(anchor="w", pady=(0, 6))
+        check_row = ctk.CTkFrame(body, fg_color="transparent")
+        check_row.pack(anchor="w", fill="x")
+        self.check_app_btn = ctk.CTkButton(check_row, text=t("check_app_update_now"), fg_color="transparent",
+                                           border_width=1, text_color=("gray10", "gray90"),
+                                           command=self._check_app_update)
+        self.check_app_btn.pack(side="left")
+        self.check_app_label = ctk.CTkLabel(check_row, text=f"v{core.APP_VERSION}", text_color=MUTED)
+        self.check_app_label.pack(side="left", padx=10)
+
         actions = ctk.CTkFrame(body, fg_color="transparent")
         actions.pack(anchor="w", pady=(22, 0))
         ctk.CTkButton(actions, text=t("open_config_folder"), fg_color="transparent", border_width=1,
@@ -284,6 +299,7 @@ class SettingsDialog(Dialog):
         language = self.language_codes[self.language_var.get()]
         language_changed = language != cfg.get("language")
         cfg["language"] = language
+        cfg["app_auto_update"] = self.app_auto_update_var.get()
         core.save_config(cfg)
         self.destroy()
         if language_changed:
@@ -291,6 +307,30 @@ class SettingsDialog(Dialog):
         else:
             self.app.apply_appearance()
             self.app.refresh_target_bar()
+
+    def _check_app_update(self):
+        self.check_app_btn.configure(state="disabled")
+        self.check_app_label.configure(text=t("app_checking"), text_color=MUTED)
+
+        def done(release: app_updater.Release):
+            if not self.winfo_exists():
+                return
+            self.check_app_btn.configure(state="normal")
+            if app_updater.is_newer(release):
+                self.check_app_label.configure(text=t("app_update_available", version=release.version),
+                                               text_color=ACCENT)
+                self.app.banner_dismissed = False
+                self.app._on_app_update_found(release, allow_auto=False)
+            else:
+                self.check_app_label.configure(text=t("app_up_to_date", version=core.APP_VERSION),
+                                               text_color=MUTED)
+
+        def failed(err: Exception):
+            if self.winfo_exists():
+                self.check_app_btn.configure(state="normal")
+                self.check_app_label.configure(text=str(err), text_color=DANGER)
+
+        self.app.run_task(app_updater.fetch_latest, done, failed)
 
     def _reset(self):
         if messagebox.askyesno(t("reset_title"), t("reset_confirm"),
@@ -336,6 +376,9 @@ class App(ctk.CTk):
         self.tags = core.load_tag_cache()
         self.mods: List[core.ModInfo] = []
         self.last_scan: Optional[core.ScanResult] = None
+        self.app_release: Optional[app_updater.Release] = None
+        self.banner_dismissed = False
+        self.updating_app = False
         self.checked: set = set()
         self.busy = False
         self.sort_key = ("status", False)
@@ -349,6 +392,7 @@ class App(ctk.CTk):
 
         self.after(50, self._poll_queue)
         self.run_task(lambda: core.fetch_tags(self.client), self._on_tags, lambda _e: None)
+        self.run_task(app_updater.check_for_update, self._on_app_update_found, lambda _e: None)
 
     # ----- background work ------------------------------------------------- #
 
@@ -417,6 +461,8 @@ class App(ctk.CTk):
             self._update_summary()
             if self.last_scan:
                 self._show_scan_status(self.last_scan)
+        if self.app_release and not self.banner_dismissed:
+            self._show_update_banner()
 
     def _build_sidebar(self):
         side = ctk.CTkFrame(self, width=230, corner_radius=0, fg_color=SIDEBAR_BG)
@@ -461,11 +507,30 @@ class App(ctk.CTk):
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.grid(row=0, column=1, sticky="nsew", padx=22, pady=18)
         main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(3, weight=1)
+        main.grid_rowconfigure(4, weight=1)
+
+        # Banner shown when a new version of the app is available
+        self.banner = ctk.CTkFrame(main, fg_color=("#DDF3E6", "#1E3A2A"), corner_radius=10)
+        self.banner.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        self.banner.grid_columnconfigure(0, weight=1)
+        self.banner_label = ctk.CTkLabel(self.banner, text="", anchor="w", font=ctk.CTkFont(size=13, weight="bold"))
+        self.banner_label.grid(row=0, column=0, sticky="ew", padx=14, pady=10)
+        self.banner_notes_btn = ctk.CTkButton(self.banner, text=t("app_whats_new"), width=90, fg_color="transparent",
+                                              border_width=1, text_color=("gray10", "gray90"),
+                                              command=self._open_release_notes)
+        self.banner_notes_btn.grid(row=0, column=1, padx=(0, 6))
+        self.banner_later_btn = ctk.CTkButton(self.banner, text=t("app_update_later"), width=80, fg_color="transparent",
+                                              text_color=("gray10", "gray90"), hover_color=("gray80", "gray25"),
+                                              command=self._dismiss_update_banner)
+        self.banner_later_btn.grid(row=0, column=2, padx=(0, 6))
+        self.banner_update_btn = ctk.CTkButton(self.banner, text=t("app_update_now"), width=120, fg_color=ACCENT,
+                                               hover_color=ACCENT_HOVER, command=self.start_app_update)
+        self.banner_update_btn.grid(row=0, column=3, padx=(0, 10))
+        self.banner.grid_remove()
 
         # Header with profile info and actions
         header = ctk.CTkFrame(main, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew")
+        header.grid(row=1, column=0, sticky="ew")
         header.grid_columnconfigure(0, weight=1)
         self.profile_title = ctk.CTkLabel(header, text="", font=ctk.CTkFont(size=24, weight="bold"), anchor="w")
         self.profile_title.grid(row=0, column=0, sticky="w")
@@ -487,7 +552,7 @@ class App(ctk.CTk):
 
         # Target bar: Minecraft version, loader, check button
         bar = ctk.CTkFrame(main, fg_color=CARD_BG, corner_radius=12)
-        bar.grid(row=1, column=0, sticky="ew", pady=(16, 12))
+        bar.grid(row=2, column=0, sticky="ew", pady=(16, 12))
         ctk.CTkLabel(bar, text="Minecraft", text_color=MUTED).pack(side="left", padx=(16, 8), pady=14)
         self.version_var = tk.StringVar()
         self.version_box = ctk.CTkComboBox(bar, variable=self.version_var, width=150,
@@ -509,7 +574,7 @@ class App(ctk.CTk):
 
         # Summary + search
         summary = ctk.CTkFrame(main, fg_color="transparent")
-        summary.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        summary.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         self.summary_label = ctk.CTkLabel(summary, text=t("press_check"),
                                           text_color=MUTED, anchor="w")
         self.summary_label.pack(side="left")
@@ -519,7 +584,7 @@ class App(ctk.CTk):
 
         # Mod table
         table = ctk.CTkFrame(main, fg_color=CARD_BG, corner_radius=12)
-        table.grid(row=3, column=0, sticky="nsew")
+        table.grid(row=4, column=0, sticky="nsew")
         table.grid_columnconfigure(0, weight=1)
         table.grid_rowconfigure(0, weight=1)
         columns = ("sel", "name", "current", "latest", "status")
@@ -541,7 +606,7 @@ class App(ctk.CTk):
 
         # Footer: progress and update button
         footer = ctk.CTkFrame(main, fg_color="transparent")
-        footer.grid(row=4, column=0, sticky="ew", pady=(12, 0))
+        footer.grid(row=5, column=0, sticky="ew", pady=(12, 0))
         footer.grid_columnconfigure(0, weight=1)
         self.status_label = ctk.CTkLabel(footer, text=t("ready"), text_color=MUTED, anchor="w")
         self.status_label.grid(row=0, column=0, sticky="ew")
@@ -672,6 +737,67 @@ class App(ctk.CTk):
         core.save_config(self.config_data)
         self.mods = []
         self.rebuild_ui()
+
+    # ----- updates of this app -------------------------------------------- #
+
+    def _on_app_update_found(self, release: Optional[app_updater.Release], allow_auto: bool = True):
+        if not release or self.updating_app:
+            return
+        self.app_release = release
+        if allow_auto and self.config_data.get("app_auto_update") and app_updater.is_frozen():
+            self.start_app_update()
+        else:
+            self._show_update_banner()
+
+    def _show_update_banner(self, text: Optional[str] = None, busy: bool = False):
+        self.banner_label.configure(text=text or t("app_update_available", version=self.app_release.version))
+        for btn in (self.banner_update_btn, self.banner_later_btn):
+            btn.configure(state="disabled" if busy else "normal")
+        self.banner.grid()
+
+    def _dismiss_update_banner(self):
+        self.banner_dismissed = True
+        self.banner.grid_remove()
+
+    def _open_release_notes(self):
+        if self.app_release:
+            webbrowser.open(self.app_release.page_url)
+
+    def start_app_update(self):
+        release = self.app_release
+        if not release or self.updating_app:
+            return
+        if not app_updater.is_frozen():
+            # Running from source: there is no installed app to replace.
+            webbrowser.open(release.page_url)
+            return
+        self.updating_app = True
+        self._show_update_banner(t("app_downloading", version=release.version, percent=0), busy=True)
+
+        def progress(fraction: float):
+            self._queue.put((lambda f: self.banner_label.configure(
+                text=t("app_downloading", version=release.version, percent=int(f * 100))), fraction))
+
+        self.run_task(lambda: app_updater.download(release, progress), self._on_app_downloaded,
+                      self._on_app_update_failed)
+
+    def _on_app_downloaded(self, path: str):
+        if self.busy:
+            # Do not close the app in the middle of a mod scan or update.
+            self.after(1000, lambda: self._on_app_downloaded(path))
+            return
+        self.banner_label.configure(text=t("app_installing"))
+        self.update_idletasks()
+        try:
+            app_updater.install(path)
+        except Exception as e:  # noqa: BLE001 - shown to the user
+            self._on_app_update_failed(e)
+            return
+        self.after(1500, self.destroy)
+
+    def _on_app_update_failed(self, err: Exception):
+        self.updating_app = False
+        self._show_update_banner(t("app_update_failed", error=err))
 
     # ----- target (Minecraft version / loader) ----------------------------- #
 

@@ -80,6 +80,8 @@ DEFAULT_CONFIG = {
     "show_snapshots": False,
     "appearance": "dark",
     "language": "system",
+    # Install new versions of this app automatically at startup (otherwise only notify)
+    "app_auto_update": False,
 }
 
 
