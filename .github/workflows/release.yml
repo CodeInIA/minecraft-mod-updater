@@ -41,6 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.next.outputs.version }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -56,8 +57,9 @@ jobs:
           if [ -z "$bump" ]; then
             # Every commit since the last release, including the ones brought in by a merge
             messages=$(git log --format=%B ${latest:+"v$latest..HEAD"})
-            if grep -qi '#major' <<< "$messages"; then bump=major
-            elif grep -qi '#minor' <<< "$messages"; then bump=minor
+            # Only a standalone marker counts ("... #minor"), not text such as "#minor/#major"
+            if grep -Eqi '(^|[[:space:]])#major([[:space:]]|$)' <<< "$messages"; then bump=major
+            elif grep -Eqi '(^|[[:space:]])#minor([[:space:]]|$)' <<< "$messages"; then bump=minor
             else bump=patch; fi
           fi
           if [ -z "$latest" ]; then
@@ -71,7 +73,21 @@ jobs:
             esac
           fi
           echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
           echo "Latest tag: v${latest:-none} | bump: $bump | new version: v$next"
+
+      - name: Changelog from commits since the last release
+        id: changelog
+        env:
+          LATEST: ${{ steps.next.outputs.latest }}
+        run: |
+          python3 .github/scripts/changelog.py "$LATEST" > changelog.md
+          cat changelog.md
+          {
+            echo "changelog<<CHANGELOG_END"
+            cat changelog.md
+            echo "CHANGELOG_END"
+          } >> "$GITHUB_OUTPUT"
 
   build:
     name: Build (${{ matrix.name }})
@@ -225,6 +241,8 @@ jobs:
           make_latest: true
           files: release/*
           body: |
+            ${{ needs.version.outputs.changelog }}
+
             ## Descargas / Downloads
             | Sistema | Archivo |
             |---|---|
