@@ -1,11 +1,12 @@
 name: Build & Release
 
 # Every push to main builds the app for Windows, macOS and Linux and publishes
-# a new GitHub release (vMAJOR.MINOR.RUN) with:
+# a new GitHub release (vMAJOR.MINOR.PATCH) with:
 #   - MinecraftModUpdater_Setup.exe      Windows installer (Inno Setup)
 #   - MinecraftModUpdater_macOS.dmg      macOS app (Apple Silicon)
 #   - MinecraftModUpdater_Linux.tar.gz   Linux x64 app + install.sh
-# Change VERSION_BASE to bump the major/minor version.
+# PATCH starts at 0 and goes up by one for each release of VERSION_BASE.
+# Change VERSION_BASE to bump the major/minor version (e.g. "2.1" -> v2.1.0).
 
 on:
   push:
@@ -23,8 +24,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  version:
+    name: Compute version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Next version from existing tags
+        id: next
+        run: |
+          last=$(git ls-remote --tags --refs origin "refs/tags/v${VERSION_BASE}.*"             | sed "s|.*refs/tags/v${VERSION_BASE}\.||" | grep -E '^[0-9]+$' | sort -n | tail -1)
+          next=$(( ${last:--1} + 1 ))
+          echo "version=${VERSION_BASE}.${next}" >> "$GITHUB_OUTPUT"
+          echo "Version: ${VERSION_BASE}.${next}"
+
   build:
     name: Build (${{ matrix.name }})
+    needs: version
     strategy:
       fail-fast: true
       matrix:
@@ -37,6 +55,8 @@ jobs:
             # Older Ubuntu = older glibc, so the binary runs on more distros.
             os: ubuntu-22.04
     runs-on: ${{ matrix.os }}
+    env:
+      APP_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
 
@@ -54,7 +74,7 @@ jobs:
 
       - name: Write version file
         shell: bash
-        run: echo "VERSION = \"$VERSION_BASE.${{ github.run_number }}\"" > app_version.py
+        run: echo "VERSION = \"$APP_VERSION\"" > app_version.py
 
       - name: Build app
         run: pyinstaller --noconfirm mod_updater.spec
@@ -68,7 +88,7 @@ jobs:
             choco install innosetup -y --no-progress
             $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe", "$env:ProgramFiles\Inno Setup*\ISCC.exe" | Select-Object -First 1
           }
-          & $iscc.FullName "/DMyAppVersion=$env:VERSION_BASE.${{ github.run_number }}" installer-script.iss
+          & $iscc.FullName "/DMyAppVersion=$env:APP_VERSION" installer-script.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force release | Out-Null
           Move-Item installer/MinecraftModUpdater_Setup.exe release/
@@ -98,7 +118,7 @@ jobs:
 
   release:
     name: Publish release
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -110,8 +130,8 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.VERSION_BASE }}.${{ github.run_number }}
-          name: Minecraft Mod Updater v${{ env.VERSION_BASE }}.${{ github.run_number }}
+          tag_name: v${{ needs.version.outputs.version }}
+          name: Minecraft Mod Updater v${{ needs.version.outputs.version }}
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
           make_latest: true
