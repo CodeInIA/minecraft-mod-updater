@@ -147,9 +147,18 @@ Source: "updater-logo.ico"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\updater-logo.ico"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\updater-logo.ico"; Tasks: desktopicon
+; Never touch an existing desktop shortcut (recreating it moves it on the desktop) and never
+; create one during a silent update started from the app, so a deleted shortcut stays deleted.
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\updater-logo.ico"; Tasks: desktopicon; Check: ShouldCreateDesktopShortcut
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 ; Silent install = update started from inside the app: reopen it as the normal (non-admin) user
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser skipifnotsilent
+
+[Code]
+function ShouldCreateDesktopShortcut: Boolean;
+begin
+  Result := (not WizardSilent) and
+            (not FileExists(ExpandConstant('{autodesktop}\{#MyAppName}.lnk')));
+end;

@@ -220,6 +220,22 @@ jobs:
           $code = Run-And-Wait "$dir\mod_updater.exe" "--self-test"
           Get-Content $env:MMU_SELF_TEST_OUTPUT
           if ($code -ne 0) { exit 1 }
+          # Desktop shortcut: a silent install (= update from the app) must not create it,
+          # and an update must leave an existing one untouched (recreating it moves it).
+          $shortcut = Join-Path ([Environment]::GetFolderPath("CommonDesktopDirectory")) "Minecraft Mod Updater.lnk"
+          if (Test-Path $shortcut) { Write-Error "A silent install created a desktop shortcut"; exit 1 }
+          Set-Content $shortcut "existing shortcut"
+          (Get-Item $shortcut).LastWriteTime = [datetime]"2020-01-01"
+          $code = Run-And-Wait "release\MinecraftModUpdater_Setup.exe" @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$dir`"")
+          if ($code -ne 0) { Write-Error "Update install failed: $code"; exit 1 }
+          Start-Sleep 3
+          Get-Process mod_updater -ErrorAction SilentlyContinue | Stop-Process -Force
+          $item = Get-Item $shortcut
+          if ((Get-Content $shortcut) -ne "existing shortcut" -or $item.LastWriteTime -ne [datetime]"2020-01-01") {
+            Write-Error "The update modified the existing desktop shortcut"; exit 1
+          }
+          Remove-Item $shortcut
+          Write-Host "Desktop shortcut left untouched by the update"
           $null = Run-And-Wait "$dir\unins000.exe" @("/VERYSILENT", "/SUPPRESSMSGBOXES")
 
       - name: Package macOS disk image
