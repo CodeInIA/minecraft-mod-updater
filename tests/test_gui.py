@@ -172,3 +172,34 @@ def test_dragging_a_profile_reorders_and_animates_into_place(app):
     assert [p["name"] for p in core.load_config()["profiles"]] == ["b", "c", "a", "d"]
     assert [r.slot_y for r in app.profile_rows] == [i * mod_updater.PROFILE_SLOT for i in range(4)]
     assert app.config_data["current_profile"] == "a"  # dragging does not select
+
+
+@pytest.mark.parametrize("from_top", [True, False])
+def test_dragging_past_the_edge_does_not_move_a_list_that_fits(app, from_top):
+    import time
+    import mod_updater
+    base = {"path": "x", "game_version": core.AUTO, "loader": core.AUTO, "color": core.PROFILE_COLORS[0]}
+    app.config_data["profiles"] = [dict(base, name=n) for n in ("a", "b", "c", "d")]
+    app.config_data["current_profile"] = "a"
+    app.refresh_profiles()
+    app.update()
+    canvas = app.profile_list._parent_canvas
+    first_row_offset = lambda: app.profile_rows[0].winfo_rooty() - canvas.winfo_rooty()
+    before = first_row_offset()
+    row = app.profile_rows[0 if from_top else -1]
+    label = [w for w in row.winfo_children() if isinstance(w, mod_updater.ctk.CTkLabel)][0]._label
+    rx, ry = label.winfo_rootx() + 5, label.winfo_rooty() + 5
+    delta = -120 if from_top else 400  # well past the top / bottom of the list
+    label.event_generate("<ButtonPress-1>", x=5, y=5, rootx=rx, rooty=ry)
+    for d in range(0, delta, -8 if from_top else 8):
+        label.event_generate("<B1-Motion>", x=5, y=5 + d, rootx=rx, rooty=ry + d)
+        app.update()
+    end = time.time() + 0.6  # keep holding beyond the edge
+    while time.time() < end:
+        app.update()
+    label.event_generate("<ButtonRelease-1>", x=5, y=5 + delta, rootx=rx, rooty=ry + delta)
+    end = time.time() + 1.5
+    while time.time() < end and app._anim_job is not None:
+        app.update()
+    assert canvas.yview() == (0.0, 1.0)
+    assert first_row_offset() == before

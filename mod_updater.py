@@ -862,11 +862,16 @@ class App(ctk.CTk):
         canvas = getattr(self.profile_list, "_parent_canvas", None)
         if canvas is None:
             return
+        # Only scroll when the list is taller than the visible area, and only towards hidden
+        # content: Tk would otherwise move a list that fits completely out of place.
+        first, last = canvas.yview()
+        if first <= 0 and last >= 1:
+            return
         top = canvas.winfo_rooty()
         bottom = top + canvas.winfo_height()
-        if self._drag["pointer"] < top + 24:
+        if self._drag["pointer"] < top + 24 and first > 0:
             canvas.yview_scroll(-1, "units")
-        elif self._drag["pointer"] > bottom - 24:
+        elif self._drag["pointer"] > bottom - 24 and last < 1:
             canvas.yview_scroll(1, "units")
 
     def _start_profile_animation(self):
