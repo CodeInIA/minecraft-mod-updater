@@ -263,7 +263,7 @@ class SettingsDialog(Dialog):
                           width=220).pack(anchor="w")
 
         ctk.CTkLabel(body, text=t("app_updates_section")).pack(anchor="w", pady=(14, 4))
-        self.app_auto_update_var = tk.BooleanVar(value=cfg.get("app_auto_update", False))
+        self.app_auto_update_var = tk.BooleanVar(value=cfg.get("app_auto_update", True))
         ctk.CTkSwitch(body, text=t("opt_auto_update_app"), variable=self.app_auto_update_var,
                       progress_color=ACCENT).pack(anchor="w", pady=(0, 6))
         check_row = ctk.CTkFrame(body, fg_color="transparent")

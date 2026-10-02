@@ -81,7 +81,7 @@ DEFAULT_CONFIG = {
     "appearance": "dark",
     "language": "system",
     # Install new versions of this app automatically at startup (otherwise only notify)
-    "app_auto_update": False,
+    "app_auto_update": True,
 }
 
 
