@@ -45,7 +45,18 @@ def test_old_mod_is_detected_and_updated(client, tmp_path):
     assert os.listdir(mods_dir) == [mod.filename]
 
 
-def test_github_latest_release_has_all_installers():
+def test_github_latest_release_has_all_installers(monkeypatch):
+    # GitHub allows only 60 anonymous API calls per hour per IP, and CI runners share IPs.
+    # In the workflow the job token is used so this test is not rate limited.
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        real_get = app_updater.requests.get
+
+        def get_with_token(url, **kwargs):
+            kwargs["headers"] = {**kwargs.get("headers", {}), "Authorization": f"Bearer {token}"}
+            return real_get(url, **kwargs)
+
+        monkeypatch.setattr(app_updater.requests, "get", get_with_token)
     release = app_updater.fetch_latest()
     assert app_updater.parse_version(release.version)
     assert release.asset_url and release.sha256

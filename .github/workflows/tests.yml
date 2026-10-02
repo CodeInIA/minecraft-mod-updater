@@ -43,10 +43,14 @@ jobs:
       # The window tests need a display; Linux runners get a virtual one.
       - name: Run tests (Linux)
         if: runner.os == 'Linux'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null
           xvfb-run -a python -m pytest -v
 
       - name: Run tests
         if: runner.os != 'Linux'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: python -m pytest -v
