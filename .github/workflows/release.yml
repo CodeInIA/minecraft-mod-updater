@@ -5,19 +5,25 @@ name: Build & Release
 #   - MinecraftModUpdater_Setup.exe      Windows installer (Inno Setup)
 #   - MinecraftModUpdater_macOS.dmg      macOS app (Apple Silicon)
 #   - MinecraftModUpdater_Linux.tar.gz   Linux x64 app + install.sh
-# PATCH starts at 0 and goes up by one for each release of VERSION_BASE.
-# Change VERSION_BASE to bump the major/minor version (e.g. "2.1" -> v2.1.0).
+# The version is computed from the latest vX.Y.Z tag, nothing is hard-coded:
+#   - by default the patch number goes up:        v2.0.3 -> v2.0.4
+#   - "#minor" in a pushed commit message:          v2.0.4 -> v2.1.0
+#   - "#major" in a pushed commit message:          v2.1.0 -> v3.0.0
+# When run by hand (Actions -> Run workflow) the bump can be chosen.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      bump:
+        description: Version number to increase
+        type: choice
+        options: [patch, minor, major]
+        default: patch
 
 permissions:
   contents: write
-
-env:
-  VERSION_BASE: "2.0"
 
 concurrency:
   group: release
@@ -34,11 +40,30 @@ jobs:
 
       - name: Next version from existing tags
         id: next
+        env:
+          BUMP: ${{ inputs.bump }}
         run: |
-          last=$(git ls-remote --tags --refs origin "refs/tags/v${VERSION_BASE}.*"             | sed "s|.*refs/tags/v${VERSION_BASE}\.||" | grep -E '^[0-9]+$' | sort -n | tail -1)
-          next=$(( ${last:--1} + 1 ))
-          echo "version=${VERSION_BASE}.${next}" >> "$GITHUB_OUTPUT"
-          echo "Version: ${VERSION_BASE}.${next}"
+          latest=$(git ls-remote --tags --refs origin 'refs/tags/v*' | sed 's|.*refs/tags/v||' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          bump="$BUMP"
+          if [ -z "$bump" ]; then
+            messages=$(jq -r '.commits[]?.message // empty' "$GITHUB_EVENT_PATH")
+            if grep -qi '#major' <<< "$messages"; then bump=major
+            elif grep -qi '#minor' <<< "$messages"; then bump=minor
+            else bump=patch; fi
+          fi
+          if [ -z "$latest" ]; then
+            next=1.0.0
+          else
+            IFS=. read -r major minor patch <<< "$latest"
+            case "$bump" in
+              major) next="$((major + 1)).0.0" ;;
+              minor) next="$major.$((minor + 1)).0" ;;
+              *)     next="$major.$minor.$((patch + 1))" ;;
+            esac
+          fi
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "Latest tag: v${latest:-none} | bump: $bump | new version: v$next"
 
   build:
     name: Build (${{ matrix.name }})

@@ -59,7 +59,7 @@ Mods not published on Modrinth are listed as "not on Modrinth" and left untouche
 
 Locally: `pip install -r requirements.txt pyinstaller`, then `pyinstaller --noconfirm mod_updater.spec`. On Windows, `build_installer.bat` also builds the installer (requires [Inno Setup 6](https://jrsoftware.org/isinfo.php)) into `installer/`.
 
-On GitHub: `.github/workflows/release.yml` runs on every push to `main`. It builds the app with PyInstaller on Windows, macOS and Linux, packages it (Inno Setup installer, `.dmg`, `.tar.gz` with `packaging/linux/install.sh`) and publishes release `vMAJOR.MINOR.N`, where `MAJOR.MINOR` is `VERSION_BASE` in the workflow and `N` is the workflow run number.
+On GitHub: `.github/workflows/release.yml` runs on every push to `main`. It builds the app with PyInstaller on Windows, macOS and Linux, packages it (Inno Setup installer, `.dmg`, `.tar.gz` with `packaging/linux/install.sh`) and publishes a new release. The version is computed from the latest `vX.Y.Z` tag: the patch number goes up by default, and `#minor` or `#major` in a commit message bumps the minor or major number (`v2.0.4` → `v2.1.0` → `v3.0.0`). When the workflow is started by hand from the Actions tab, the bump can be chosen.
 
 ## 📜 License
 
