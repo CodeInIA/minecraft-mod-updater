@@ -188,7 +188,8 @@ def fake_modrinth():
         sha(b"lithium-old"): version("L2", ["26.3"], ["fabric"], "2026-09-01", project="lithium", number="0.26",
                                      files=[file_entry("lithium-0.26.jar", new_lithium)]),
     }
-    projects = {"sodium": {"title": "Sodium", "icon_url": "https://cdn.example/sodium.png"},
+    projects = {"sodium": {"title": "Sodium", "icon_url": "https://cdn.example/sodium.png",
+                           "slug": "sodium", "project_type": "mod"},
                 "lithium": {"title": "Lithium", "icon_url": ""}}
     payloads = {"https://cdn.example/sodium-0.9.jar": new_sodium,
                 "https://cdn.example/lithium-0.26.jar": new_lithium}
@@ -204,6 +205,9 @@ def test_scan_auto_detects_target_and_statuses(tmp_path):
     assert by_name["local.jar"].status == core.STATUS_NOT_FOUND
     assert by_name["sodium-old.jar"].title == "Sodium"
     assert by_name["sodium-old.jar"].icon_url == "https://cdn.example/sodium.png"
+    assert by_name["sodium-old.jar"].page_url == "https://modrinth.com/mod/sodium"
+    assert by_name["lithium-old.jar.disabled"].page_url == "https://modrinth.com/project/lithium"
+    assert by_name["local.jar"].page_url == ""
     assert client.latest_calls[0] == (("fabric",), ("1.21.4",))
 
 
@@ -228,3 +232,13 @@ def test_update_without_backup_deletes_old_files(tmp_path):
     to_update = [m for m in result.mods if m.status == core.STATUS_UPDATE]
     assert core.update_mods(client, to_update, str(mods_dir), False, lambda f, m: None) is None
     assert "sodium-old.jar" not in os.listdir(mods_dir)
+
+
+@pytest.mark.parametrize("project, project_id, expected", [
+    ({"slug": "sodium", "project_type": "mod"}, "AANobbMI", "https://modrinth.com/mod/sodium"),
+    ({"slug": "luckperms", "project_type": "plugin"}, "Vebnzrzj", "https://modrinth.com/plugin/luckperms"),
+    ({}, "AANobbMI", "https://modrinth.com/project/AANobbMI"),
+    ({}, "", ""),
+])
+def test_modrinth_page_url(project, project_id, expected):
+    assert core.modrinth_page_url(project, project_id) == expected

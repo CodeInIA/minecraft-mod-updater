@@ -9,13 +9,14 @@ import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
 
 import app_updater
 import i18n
 import updater_core as core
+import mod_icons
 from mod_icons import IconCache
 from i18n import t
 
@@ -26,6 +27,8 @@ DANGER_HOVER = ("#A83535", "#D04848")
 SIDEBAR_BG = ("#E6E9EC", "#1A1C1E")
 CARD_BG = ("#F5F6F7", "#232629")
 MUTED = ("#5F6670", "#9AA1A9")
+
+TREE_ITEM_PADDING = 10  # left padding of rows in the mod table (see _style_tree)
 
 # Display order of statuses in the table
 STATUS_ORDER = [core.STATUS_UPDATE, core.STATUS_UP_TO_DATE, core.STATUS_NOT_FOUND,
@@ -387,6 +390,8 @@ class App(ctk.CTk):
         self.sort_key = ("status", False)
         self._row_tags: Dict[str, List[str]] = {}
         self._hover_row: Optional[str] = None
+        self._tooltip: Optional[tk.Toplevel] = None
+        self._tree_font = tkfont.Font(size=10)
         self._queue: "queue.Queue" = queue.Queue()
 
         self.grid_columnconfigure(1, weight=1)
@@ -614,6 +619,7 @@ class App(ctk.CTk):
         self.tree.configure(yscrollcommand=scroll.set)
         self.tree.bind("<Button-1>", self._on_tree_click)
         self.tree.bind("<Motion>", self._on_tree_motion)
+        self.tree.bind("<Leave>", lambda _e: self._set_link_hover(None))
 
         # Footer: progress and update button
         footer = ctk.CTkFrame(main, fg_color="transparent")
@@ -649,7 +655,8 @@ class App(ctk.CTk):
         style.layout("Mods.Treeview.Item", [("Treeitem.padding", {"sticky": "nswe", "children": [
             ("Treeitem.image", {"side": "left", "sticky": ""}),
             ("Treeitem.text", {"side": "left", "sticky": ""})]})])
-        style.configure("Mods.Treeview.Item", padding=(10, 0, 0, 0))
+        style.configure("Mods.Treeview.Item", padding=(TREE_ITEM_PADDING, 0, 0, 0))
+        self._tree_font = tkfont.Font(family=family, size=10)
         style.configure("Mods.Treeview.Heading", background=head_bg, foreground=fg, relief="flat",
                         borderwidth=0, font=(family, 10, "bold"), padding=(8, 6))
         style.map("Mods.Treeview.Heading", background=[("active", head_bg)])
@@ -1005,13 +1012,31 @@ class App(ctk.CTk):
                                   state="normal" if enabled else "disabled",
                                   fg_color=ACCENT if enabled else ("gray75", "gray30"))
 
-    def _on_tree_click(self, event):
-        if self.busy or self.tree.identify_region(event.x, event.y) not in ("tree", "cell"):
-            return
+    def _hit_area(self, event) -> Tuple[Optional[core.ModInfo], str]:
+        """Which part of a row is under the mouse: 'checkbox', 'link' (icon + name) or 'row'."""
+        if self.tree.identify_region(event.x, event.y) not in ("tree", "cell"):
+            return None, ""
         iid = self.tree.identify_row(event.y)
         mod = next((m for m in self.mods if m.path == iid), None)
-        if not mod or mod.status != core.STATUS_UPDATE:
+        if not mod:
+            return None, ""
+        if self.tree.identify_column(event.x) != "#0":
+            return mod, "row"
+        bbox = self.tree.bbox(iid, "#0")
+        x = event.x - (bbox[0] if bbox else 0) - TREE_ITEM_PADDING
+        if x < mod_icons.BOX + mod_icons.GAP // 2:
+            return mod, "checkbox"
+        name_end = mod_icons.BOX + mod_icons.GAP + mod_icons.ICON + self._tree_font.measure(self.tree.item(iid, "text"))
+        return mod, "link" if x <= name_end else "row"
+
+    def _on_tree_click(self, event):
+        mod, area = self._hit_area(event)
+        if area == "link" and mod.page_url:
+            webbrowser.open(mod.page_url)
             return
+        if self.busy or not mod or mod.status != core.STATUS_UPDATE:
+            return
+        iid = mod.path
         self.checked.symmetric_difference_update({iid})
         self.tree.item(iid, image=self._row_image(mod))
         self._refresh_update_button()
@@ -1032,7 +1057,28 @@ class App(ctk.CTk):
         self.sort_key = (column, not reverse if key == column else False)
         self._fill_tree()
 
+    def _set_link_hover(self, event):
+        """Hand cursor and an "Open in Modrinth" tooltip while the mouse is over a mod name."""
+        if event is None:
+            self.tree.configure(cursor="")
+            if self._tooltip and self._tooltip.winfo_exists():
+                self._tooltip.withdraw()
+            return
+        if not self._tooltip or not self._tooltip.winfo_exists():
+            self._tooltip = tk.Toplevel(self)
+            self._tooltip.overrideredirect(True)
+            self._tooltip.attributes("-topmost", True)
+            self._tooltip_label = tk.Label(self._tooltip, padx=8, pady=3, font=(ui_font_family(), 9))
+            self._tooltip_label.pack()
+        self._tooltip_label.configure(text=t("open_in_modrinth") + "  ↗", bg=pick(SIDEBAR_BG),
+                                      fg="#E8EAED" if is_dark() else "#1F2328")
+        self._tooltip.geometry(f"+{event.x_root + 14}+{event.y_root + 18}")
+        self._tooltip.deiconify()
+        self.tree.configure(cursor="hand2")
+
     def _on_tree_motion(self, event):
+        mod, area = self._hit_area(event)
+        self._set_link_hover(event if area == "link" and mod.page_url else None)
         row = self.tree.identify_row(event.y)
         previous = getattr(self, "_hover_row", None)
         if row == previous:

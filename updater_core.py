@@ -274,6 +274,7 @@ class ModInfo:
     latest: Optional[Dict] = None
     title: str = ""
     icon_url: str = ""
+    page_url: str = ""
     status: str = STATUS_NOT_FOUND
     error: str = ""
     duplicates: List[str] = field(default_factory=list)
@@ -297,6 +298,14 @@ class ModInfo:
     @property
     def latest_version(self) -> str:
         return self.latest.get("version_number", "?") if self.latest else "—"
+
+
+def modrinth_page_url(project: Dict, project_id: str) -> str:
+    """Public Modrinth page of a project, e.g. https://modrinth.com/mod/sodium."""
+    slug = project.get("slug") or project_id
+    if not slug:
+        return ""
+    return f"https://modrinth.com/{project.get('project_type') or 'project'}/{slug}"
 
 
 def calculate_hash(file_path: str) -> str:
@@ -463,6 +472,7 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
             project = projects.get(mod.current.get("project_id"), {})
             mod.title = project.get("title", "")
             mod.icon_url = project.get("icon_url") or ""
+            mod.page_url = modrinth_page_url(project, mod.current.get("project_id", ""))
         mod.status = determine_status(mod, result.game_version or "", loaders)
 
     progress(1.0, t("ready"))

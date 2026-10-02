@@ -43,7 +43,8 @@ def fake_scan(tmp_path):
     for i, status in enumerate([core.STATUS_UPDATE, core.STATUS_UPDATE, core.STATUS_UP_TO_DATE,
                                 core.STATUS_NOT_FOUND, core.STATUS_NO_COMPATIBLE]):
         mods.append(core.ModInfo(path=str(tmp_path / f"mod{i}.jar"), title=f"Mod {i}", status=status,
-                                 current={"version_number": "1.0"}, latest={"version_number": "2.0"}))
+                                 current={"version_number": "1.0"}, latest={"version_number": "2.0"},
+                                 page_url=f"https://modrinth.com/mod/mod{i}"))
     return core.ScanResult(mods=mods, game_version="26.3", loader="fabric", detected=True)
 
 
@@ -81,3 +82,26 @@ def test_dialogs_open(app):
                    mod_updater.ProfileDialog(app, app.current_profile())):
         dialog.update()
         dialog.destroy()
+
+
+def test_click_on_name_opens_modrinth_and_checkbox_toggles(app, tmp_path, monkeypatch):
+    import mod_icons
+    import mod_updater
+    opened = []
+    monkeypatch.setattr(mod_updater.webbrowser, "open", opened.append)
+    app._on_scan_done(fake_scan(tmp_path))
+    app.update()
+    first = app.tree.get_children()[0]
+    mod = next(m for m in app.mods if m.path == first)
+    x0, y0, _w, h = app.tree.bbox(first, "#0")
+    y = y0 + h // 2
+    checkbox_x = x0 + mod_updater.TREE_ITEM_PADDING + mod_icons.BOX // 2
+    name_x = x0 + mod_updater.TREE_ITEM_PADDING + mod_icons.BOX + mod_icons.GAP + mod_icons.ICON + 15
+
+    was_checked = mod.path in app.checked
+    app.tree.event_generate("<Button-1>", x=checkbox_x, y=y)
+    assert (mod.path in app.checked) != was_checked and not opened
+
+    app.tree.event_generate("<Button-1>", x=name_x, y=y)
+    assert opened == [mod.page_url]
+    assert (mod.path in app.checked) != was_checked  # opening the link does not toggle the row
