@@ -29,6 +29,8 @@ CARD_BG = ("#F5F6F7", "#232629")
 MUTED = ("#5F6670", "#9AA1A9")
 
 SIDEBAR_MIN_WIDTH = 230
+PROFILE_ROW_HEIGHT = 38
+PROFILE_SLOT = PROFILE_ROW_HEIGHT + 4  # row + gap in the sidebar list
 SIDEBAR_MAX_WIDTH = 380  # only reached by unusually wide 32-character names
 # Space around a profile name in the sidebar: color square, paddings and the scrollbar
 SIDEBAR_ROW_EXTRA = 100
@@ -543,8 +545,12 @@ class App(ctk.CTk):
             row=1, column=0, sticky="w", padx=20, pady=(4, 4))
         self.profile_list = ctk.CTkScrollableFrame(side, fg_color="transparent")
         self.profile_list.grid(row=3, column=0, sticky="nsew", padx=8)
+        self.profile_container = ctk.CTkFrame(self.profile_list, fg_color="transparent", height=1)
+        self.profile_container.pack(fill="x")
         self.profile_rows: List[ctk.CTkFrame] = []
         self._drag: Optional[Dict] = None
+        self._drop_slot: Optional[ctk.CTkFrame] = None
+        self._anim_job: Optional[str] = None
 
         self.add_btn = ctk.CTkButton(side, text=t("new_profile_btn"), fg_color="transparent", border_width=1,
                                      text_color=("gray10", "gray90"), border_color=MUTED,
@@ -729,12 +735,17 @@ class App(ctk.CTk):
     def refresh_profiles(self):
         for row in self.profile_rows:
             row.destroy()
+        if self._drop_slot:
+            self._drop_slot.destroy()
+            self._drop_slot = None
         self.profile_rows = []
         current = self.current_profile()
-        for profile in self.config_data["profiles"]:
+        for i, profile in enumerate(self.config_data["profiles"]):
             row = self._make_profile_row(profile, current is profile)
-            row.pack(fill="x", pady=2)
+            row.slot_y = i * PROFILE_SLOT
+            row.place(x=0, y=row.slot_y, relwidth=1)
             self.profile_rows.append(row)
+        self.profile_container.configure(height=max(1, len(self.profile_rows) * PROFILE_SLOT))
         self.add_btn.configure(state="normal" if len(self.config_data["profiles"]) < core.MAX_PROFILES else "disabled")
         self._fit_sidebar_width()
 
@@ -775,7 +786,7 @@ class App(ctk.CTk):
         """Sidebar entry: color square + name. Click selects it, dragging reorders the profiles."""
         idle_bg = ACCENT if active else "transparent"
         hover_bg = ACCENT_HOVER if active else ("gray80", "gray25")
-        row = ctk.CTkFrame(self.profile_list, height=38, corner_radius=8, fg_color=idle_bg)
+        row = ctk.CTkFrame(self.profile_container, height=PROFILE_ROW_HEIGHT, corner_radius=8, fg_color=idle_bg)
         row.pack_propagate(False)
         swatch = ctk.CTkFrame(row, width=16, height=16, corner_radius=5, fg_color=profile.get("color") or ACCENT,
                               border_width=2 if active else 0, border_color=("white", "white"))
@@ -800,44 +811,112 @@ class App(ctk.CTk):
             widget.bind("<ButtonRelease-1>", lambda e: self._profile_release(e, row))
         return row
 
+    # ----- drag and drop of profiles ------------------------------------- #
+    # The dragged row follows the mouse, a slot shows where it will land and the
+    # other rows slide out of the way; on release the row glides into its slot.
+
     def _profile_press(self, event, row):
-        self._drag = {"row": row, "y": event.y_root, "moved": False}
+        if self.busy:
+            return
+        self._drag = {"row": row, "start": event.y_root, "pointer": event.y_root,
+                      "offset": event.y_root - row.winfo_rooty(), "moved": False}
 
     def _profile_drag(self, event, row):
         drag = self._drag
-        if not drag or self.busy:
+        if not drag:
             return
+        drag["pointer"] = event.y_root
         if not drag["moved"]:
-            if abs(event.y_root - drag["y"]) < 6:  # small movements still count as a click
+            if abs(event.y_root - drag["start"]) < 6:  # small movements still count as a click
                 return
             drag["moved"] = True
             self.configure(cursor="fleur")
-            row.configure(fg_color=row.hover_bg)
-        rows = self.profile_rows
-        current = rows.index(row)
-        others = [r for r in rows if r is not row]
-        target = sum(1 for r in others if event.y_root > r.winfo_rooty() + r.winfo_height() / 2)
+            row.configure(fg_color=row.hover_bg, border_width=2, border_color=("#7A8088", "#C9CED4"))
+            row.lift()
+            self._drop_slot = ctk.CTkFrame(self.profile_container, height=PROFILE_ROW_HEIGHT, corner_radius=8,
+                                           fg_color=("gray86", "gray17"), border_width=2,
+                                           border_color=("gray70", "gray30"))
+            self._drop_slot.place(x=0, y=row.slot_y, relwidth=1)
+            self._drop_slot.lower()
+        self._follow_pointer()
+        self._start_profile_animation()
+
+    def _follow_pointer(self):
+        """Move the dragged row under the mouse and reorder the list when it crosses another row."""
+        drag = self._drag
+        row = drag["row"]
+        count = len(self.profile_rows)
+        y = drag["pointer"] - self.profile_container.winfo_rooty() - drag["offset"]
+        y = max(0, min(y, (count - 1) * PROFILE_SLOT))
+        row.slot_y = y
+        row.place_configure(y=round(y))
+        target = max(0, min(count - 1, round(y / PROFILE_SLOT)))
+        current = self.profile_rows.index(row)
         if target != current:
-            self.move_profile(current, target, save=False)
+            profiles = self.config_data["profiles"]
+            profiles.insert(target, profiles.pop(current))
+            self.profile_rows.insert(target, self.profile_rows.pop(current))
+        self._drop_slot.place_configure(y=target * PROFILE_SLOT)
+
+    def _autoscroll_profiles(self):
+        canvas = getattr(self.profile_list, "_parent_canvas", None)
+        if canvas is None:
+            return
+        top = canvas.winfo_rooty()
+        bottom = top + canvas.winfo_height()
+        if self._drag["pointer"] < top + 24:
+            canvas.yview_scroll(-1, "units")
+        elif self._drag["pointer"] > bottom - 24:
+            canvas.yview_scroll(1, "units")
+
+    def _start_profile_animation(self):
+        if self._anim_job is None:
+            self._anim_job = self.after(15, self._animate_profiles)
+
+    def _animate_profiles(self):
+        self._anim_job = None
+        dragging = bool(self._drag and self._drag["moved"])
+        try:
+            if dragging:
+                self._autoscroll_profiles()
+                self._follow_pointer()
+            moving = False
+            for index, row in enumerate(self.profile_rows):
+                if dragging and row is self._drag["row"]:
+                    continue
+                target = index * PROFILE_SLOT
+                if abs(row.slot_y - target) > 0.5:
+                    row.slot_y += (target - row.slot_y) * 0.3  # ease towards the slot
+                    moving = True
+                else:
+                    row.slot_y = target
+                row.place_configure(y=round(row.slot_y))
+        except tk.TclError:  # the rows were rebuilt meanwhile
+            return
+        if moving or dragging:
+            self._start_profile_animation()
 
     def _profile_release(self, event, row):
         drag, self._drag = self._drag, None
         self.configure(cursor="")
-        if drag and drag["moved"]:
+        if not drag:
+            return
+        if drag["moved"]:
+            row.configure(fg_color=row.idle_bg, border_width=0)
+            if self._drop_slot:
+                self._drop_slot.destroy()
+                self._drop_slot = None
             core.save_config(self.config_data)
-            self.refresh_profiles()
-        elif drag:
+            self._start_profile_animation()  # glide into the slot
+        else:
             self.select_profile(row.profile_name)
 
     def move_profile(self, old_index: int, new_index: int, save: bool = True):
-        """Move a profile in the list (and in the sidebar) from one position to another."""
+        """Move a profile from one position to another (the rows slide to their new places)."""
         profiles = self.config_data["profiles"]
         profiles.insert(new_index, profiles.pop(old_index))
         self.profile_rows.insert(new_index, self.profile_rows.pop(old_index))
-        for r in self.profile_rows:
-            r.pack_forget()
-        for r in self.profile_rows:
-            r.pack(fill="x", pady=2)
+        self._start_profile_animation()
         if save:
             core.save_config(self.config_data)
 

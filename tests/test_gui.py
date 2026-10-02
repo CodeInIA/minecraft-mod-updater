@@ -147,3 +147,28 @@ def test_sidebar_width_follows_longest_name(app):
     app.config_data["profiles"].append(dict(base, name="W" * 40))
     app.refresh_profiles()
     assert app.sidebar.cget("width") <= mod_updater.SIDEBAR_MAX_WIDTH
+
+
+def test_dragging_a_profile_reorders_and_animates_into_place(app):
+    import time
+    import mod_updater
+    base = {"path": "x", "game_version": core.AUTO, "loader": core.AUTO, "color": core.PROFILE_COLORS[0]}
+    app.config_data["profiles"] = [dict(base, name=n) for n in ("a", "b", "c", "d")]
+    app.config_data["current_profile"] = "a"
+    app.refresh_profiles()
+    app.update()
+    row = app.profile_rows[0]
+    label = [w for w in row.winfo_children() if isinstance(w, mod_updater.ctk.CTkLabel)][0]._label
+    rx, ry = label.winfo_rootx() + 5, label.winfo_rooty()
+    distance = int(mod_updater.PROFILE_SLOT * 2.2)  # a bit more than two rows down
+    label.event_generate("<ButtonPress-1>", x=5, y=5, rootx=rx, rooty=ry + 5)
+    for dy in range(5, distance, 7):
+        label.event_generate("<B1-Motion>", x=5, y=dy, rootx=rx, rooty=ry + dy)
+        app.update()
+    label.event_generate("<ButtonRelease-1>", x=5, y=distance, rootx=rx, rooty=ry + distance)
+    end = time.time() + 2
+    while time.time() < end and app._anim_job is not None:
+        app.update()
+    assert [p["name"] for p in core.load_config()["profiles"]] == ["b", "c", "a", "d"]
+    assert [r.slot_y for r in app.profile_rows] == [i * mod_updater.PROFILE_SLOT for i in range(4)]
+    assert app.config_data["current_profile"] == "a"  # dragging does not select
