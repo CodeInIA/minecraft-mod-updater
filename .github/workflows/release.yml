@@ -1,14 +1,15 @@
 name: Build & Release
 
-# Every push to main builds the app for Windows, macOS and Linux and publishes
-# a new GitHub release (vMAJOR.MINOR.PATCH) with:
+# Work happens on the dev branch. Every push to main (i.e. merging dev into main)
+# runs the tests, builds the app for Windows, macOS and Linux, checks that each
+# packaged app starts, and only then publishes a new GitHub release with:
 #   - MinecraftModUpdater_Setup.exe      Windows installer (Inno Setup)
 #   - MinecraftModUpdater_macOS.dmg      macOS app (Apple Silicon)
 #   - MinecraftModUpdater_Linux.tar.gz   Linux x64 app + install.sh
 # The version is computed from the latest vX.Y.Z tag, nothing is hard-coded:
 #   - by default the patch number goes up:        v2.0.3 -> v2.0.4
-#   - "#minor" in a pushed commit message:          v2.0.4 -> v2.1.0
-#   - "#major" in a pushed commit message:          v2.1.0 -> v3.0.0
+#   - "#minor" in a commit message since the last release:   v2.0.4 -> v2.1.0
+#   - "#major" in a commit message since the last release:   v2.1.0 -> v3.0.0
 # When run by hand (Actions -> Run workflow) the bump can be chosen.
 
 on:
@@ -30,24 +31,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  tests:
+    name: Tests
+    uses: ./.github/workflows/tests.yml
+
   version:
     name: Compute version
+    needs: tests
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.next.outputs.version }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # full history and tags
 
       - name: Next version from existing tags
         id: next
         env:
           BUMP: ${{ inputs.bump }}
         run: |
-          latest=$(git ls-remote --tags --refs origin 'refs/tags/v*' | sed 's|.*refs/tags/v||' \
-            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          latest=$(git tag --list 'v*' | sed 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
           bump="$BUMP"
           if [ -z "$bump" ]; then
-            messages=$(jq -r '.commits[]?.message // empty' "$GITHUB_EVENT_PATH")
+            # Every commit since the last release, including the ones brought in by a merge
+            messages=$(git log --format=%B ${latest:+"v$latest..HEAD"})
             if grep -qi '#major' <<< "$messages"; then bump=major
             elif grep -qi '#minor' <<< "$messages"; then bump=minor
             else bump=patch; fi
@@ -104,6 +112,27 @@ jobs:
       - name: Build app
         run: pyinstaller --noconfirm mod_updater.spec
 
+      # Start every packaged app in --self-test mode: checks bundled files, translations,
+      # the logo and that the window can be created.
+      - name: Self-test packaged app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:MMU_SELF_TEST_OUTPUT = "$env:RUNNER_TEMP\self-test.txt"
+          $p = Start-Process dist\mod_updater\mod_updater.exe -ArgumentList "--self-test" -Wait -PassThru
+          Get-Content $env:MMU_SELF_TEST_OUTPUT
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Self-test packaged app (macOS)
+        if: runner.os == 'macOS'
+        run: '"dist/Minecraft Mod Updater.app/Contents/MacOS/mod_updater" --self-test'
+
+      - name: Self-test packaged app (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null
+          xvfb-run -a dist/mod_updater/mod_updater --self-test
+
       - name: Package Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -118,6 +147,22 @@ jobs:
           New-Item -ItemType Directory -Force release | Out-Null
           Move-Item installer/MinecraftModUpdater_Setup.exe release/
 
+      - name: Test Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = "$env:RUNNER_TEMP\mmu-install"
+          $setup = Start-Process release\MinecraftModUpdater_Setup.exe -Wait -PassThru `
+            -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$dir`""
+          if ($setup.ExitCode -ne 0) { Write-Error "Installer failed: $($setup.ExitCode)"; exit 1 }
+          Start-Sleep 3
+          Get-Process mod_updater -ErrorAction SilentlyContinue | Stop-Process -Force  # app opened by the installer
+          $env:MMU_SELF_TEST_OUTPUT = "$env:RUNNER_TEMP\installed-self-test.txt"
+          $p = Start-Process "$dir\mod_updater.exe" -ArgumentList "--self-test" -Wait -PassThru
+          Get-Content $env:MMU_SELF_TEST_OUTPUT
+          if ($p.ExitCode -ne 0) { exit 1 }
+          Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
+
       - name: Package macOS disk image
         if: runner.os == 'macOS'
         run: |
@@ -125,6 +170,14 @@ jobs:
           cp -R "dist/Minecraft Mod Updater.app" dmg/
           ln -s /Applications dmg/Applications
           hdiutil create -volname "Minecraft Mod Updater" -srcfolder dmg -ov -format UDZO release/MinecraftModUpdater_macOS.dmg
+
+      - name: Test macOS disk image
+        if: runner.os == 'macOS'
+        run: |
+          mnt=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" release/MinecraftModUpdater_macOS.dmg
+          "$mnt/Minecraft Mod Updater.app/Contents/MacOS/mod_updater" --self-test
+          hdiutil detach "$mnt"
 
       - name: Package Linux archive
         if: runner.os == 'Linux'
@@ -134,6 +187,16 @@ jobs:
           cp packaging/linux/install.sh LICENSE pkg/MinecraftModUpdater/
           chmod +x pkg/MinecraftModUpdater/install.sh pkg/MinecraftModUpdater/mod_updater/mod_updater
           tar -czf release/MinecraftModUpdater_Linux.tar.gz -C pkg MinecraftModUpdater
+
+      - name: Test Linux archive and install.sh
+        if: runner.os == 'Linux'
+        run: |
+          test_home="$RUNNER_TEMP/test-home"
+          mkdir -p "$test_home" "$RUNNER_TEMP/extract"
+          tar -xzf release/MinecraftModUpdater_Linux.tar.gz -C "$RUNNER_TEMP/extract"
+          HOME="$test_home" "$RUNNER_TEMP/extract/MinecraftModUpdater/install.sh"
+          test -f "$test_home/.local/share/applications/minecraft-mod-updater.desktop"
+          HOME="$test_home" xvfb-run -a "$test_home/.local/bin/minecraft-mod-updater" --self-test
 
       - uses: actions/upload-artifact@v4
         with:

@@ -59,7 +59,12 @@ Mods not published on Modrinth are listed as "not on Modrinth" and left untouche
 
 Locally: `pip install -r requirements.txt pyinstaller`, then `pyinstaller --noconfirm mod_updater.spec`. On Windows, `build_installer.bat` also builds the installer (requires [Inno Setup 6](https://jrsoftware.org/isinfo.php)) into `installer/`.
 
-On GitHub: `.github/workflows/release.yml` runs on every push to `main`. It builds the app with PyInstaller on Windows, macOS and Linux, packages it (Inno Setup installer, `.dmg`, `.tar.gz` with `packaging/linux/install.sh`) and publishes a new release. The version is computed from the latest `vX.Y.Z` tag: the patch number goes up by default, and `#minor` or `#major` in a commit message bumps the minor or major number (`v2.0.4` → `v2.1.0` → `v3.0.0`). When the workflow is started by hand from the Actions tab, the bump can be chosen.
+Development happens on the `dev` branch; `main` only receives merges from `dev`.
+
+- `.github/workflows/tests.yml` runs the test suite (`pytest`) on Windows, macOS and Linux on every push to `dev` and on pull requests to `main`.
+- `.github/workflows/release.yml` runs on every push to `main` (merging `dev`). It runs the tests, builds the app with PyInstaller on the three systems, starts each packaged app in `--self-test` mode, tests the Windows installer, the macOS disk image and the Linux `install.sh`, and only then publishes a new release. The version is computed from the latest `vX.Y.Z` tag: the patch number goes up by default, and `#minor` or `#major` in a commit message since the last release bumps the minor or major number (`v2.0.4` → `v2.1.0` → `v3.0.0`). When the workflow is started by hand from the Actions tab, the bump can be chosen.
+
+Run the tests locally with `pip install -r requirements.txt -r requirements-dev.txt` and `python -m pytest` (`-m "not network"` skips the tests that use the internet).
 
 ## 📜 License
 

@@ -361,7 +361,8 @@ def open_folder(path: str) -> None:
 # --------------------------------------------------------------------------- #
 
 class App(ctk.CTk):
-    def __init__(self):
+    def __init__(self, offline: bool = False):
+        """`offline` skips the startup network checks (used by tests and --self-test)."""
         self.config_data = core.load_config()
         i18n.set_language(self.config_data.get("language", i18n.SYSTEM))
         ctk.set_appearance_mode(self.config_data["appearance"])
@@ -393,8 +394,9 @@ class App(ctk.CTk):
         self._build_ui()
 
         self.after(50, self._poll_queue)
-        self.run_task(lambda: core.fetch_tags(self.client), self._on_tags, lambda _e: None)
-        self.run_task(app_updater.check_for_update, self._on_app_update_found, lambda _e: None)
+        if not offline:
+            self.run_task(lambda: core.fetch_tags(self.client), self._on_tags, lambda _e: None)
+            self.run_task(app_updater.check_for_update, self._on_app_update_found, lambda _e: None)
 
     # ----- background work ------------------------------------------------- #
 
@@ -482,6 +484,7 @@ class App(ctk.CTk):
                 self.logo = ctk.CTkImage(Image.open(logo_path), size=(40, 40))
                 ctk.CTkLabel(brand, image=self.logo, text="").pack(side="left")
             except Exception as e:  # noqa: BLE001 - logo is optional
+                self.logo_error = repr(e)
                 print(f"Could not load logo: {e!r}", file=sys.stderr)
         titles = ctk.CTkFrame(brand, fg_color="transparent")
         titles.pack(side="left", padx=10)
@@ -1041,7 +1044,37 @@ class App(ctk.CTk):
         self._hover_row = row
 
 
+def self_test() -> int:
+    """Check that the packaged app has everything it needs. Used by the release workflow."""
+    errors = []
+    for name in ("updater-logo.png", "updater-logo.ico"):
+        if not os.path.exists(resource_path(name)):
+            errors.append(f"missing resource: {name}")
+    for lang in i18n.LANGUAGES:
+        missing = set(i18n.STRINGS["en"]) - set(i18n.STRINGS[lang])
+        if missing:
+            errors.append(f"{lang}: missing translations {sorted(missing)[:5]}")
+    try:
+        app = App(offline=True)
+        app.update()
+        if getattr(app, "logo_error", None):
+            errors.append(f"logo: {app.logo_error}")
+        app.icons.row_image("", True, True)  # Pillow drawing + ImageTk
+        app.destroy()
+    except Exception as e:  # noqa: BLE001 - reported below
+        errors.append(f"window: {e!r}")
+    report = "\n".join(errors) if errors else f"self-test OK (version {core.APP_VERSION})"
+    print(report)
+    out = os.environ.get("MMU_SELF_TEST_OUTPUT")
+    if out:  # GUI builds have no console, so the workflow reads the result from a file
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(report + "\n")
+    return 1 if errors else 0
+
+
 def main():
+    if "--self-test" in sys.argv:
+        sys.exit(self_test())
     app = App()
     app.mainloop()
 
