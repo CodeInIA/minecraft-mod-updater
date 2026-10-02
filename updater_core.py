@@ -68,6 +68,7 @@ MOD_EXTENSIONS = (".jar", ".jar.disabled")
 # Profile value meaning "detect from the mods in the folder".
 AUTO = "auto"
 MAX_PROFILES = 20
+MAX_PROFILE_NAME = 32  # characters; keeps the sidebar a sensible width
 # Colors offered for profiles (and given automatically to profiles without one)
 PROFILE_COLORS = ["#2E9E5B", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6",
                   "#EC4899", "#14B8A6", "#F97316", "#84CC16", "#64748B"]

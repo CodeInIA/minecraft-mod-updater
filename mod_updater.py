@@ -28,6 +28,10 @@ SIDEBAR_BG = ("#E6E9EC", "#1A1C1E")
 CARD_BG = ("#F5F6F7", "#232629")
 MUTED = ("#5F6670", "#9AA1A9")
 
+SIDEBAR_MIN_WIDTH = 230
+SIDEBAR_MAX_WIDTH = 380  # only reached by unusually wide 32-character names
+# Space around a profile name in the sidebar: color square, paddings and the scrollbar
+SIDEBAR_ROW_EXTRA = 100
 TREE_ITEM_PADDING = 10  # left padding of rows in the mod table (see _style_tree)
 
 # Display order of statuses in the table
@@ -141,7 +145,8 @@ class ProfileDialog(Dialog):
                      font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 16))
 
         ctk.CTkLabel(body, text=t("name")).grid(row=1, column=0, sticky="w", pady=6)
-        self.name_var = tk.StringVar(value=profile["name"])
+        self.name_var = tk.StringVar(value=profile["name"][:core.MAX_PROFILE_NAME])
+        self.name_var.trace_add("write", lambda *_: self._limit_name())
         ctk.CTkEntry(body, textvariable=self.name_var, placeholder_text=t("name_placeholder")).grid(
             row=1, column=1, columnspan=2, sticky="ew", pady=6)
 
@@ -192,6 +197,12 @@ class ProfileDialog(Dialog):
         self.bind("<Escape>", lambda _e: self.destroy())
         if os.path.isdir(self.path_var.get()):
             self.after(300, self._detect)
+
+    def _limit_name(self):
+        name = self.name_var.get()
+        if len(name) > core.MAX_PROFILE_NAME:
+            self.name_var.set(name[:core.MAX_PROFILE_NAME])
+            self.hint.configure(text=t("err_name_too_long", max=core.MAX_PROFILE_NAME), text_color=DANGER)
 
     def _set_color(self, color: str):
         self.color = color
@@ -245,6 +256,8 @@ class ProfileDialog(Dialog):
         game_version = self.version_var.get().strip()
         if not name:
             return self._error(t("err_name_required"))
+        if len(name) > core.MAX_PROFILE_NAME:
+            return self._error(t("err_name_too_long", max=core.MAX_PROFILE_NAME))
         others = [p["name"] for p in self.app.config_data["profiles"] if p is not self.original]
         if name in others:
             return self._error(t("err_name_exists", name=name))
@@ -503,7 +516,8 @@ class App(ctk.CTk):
             self._show_update_banner()
 
     def _build_sidebar(self):
-        side = ctk.CTkFrame(self, width=230, corner_radius=0, fg_color=SIDEBAR_BG)
+        side = ctk.CTkFrame(self, width=SIDEBAR_MIN_WIDTH, corner_radius=0, fg_color=SIDEBAR_BG)
+        self.sidebar = side
         side.grid(row=0, column=0, sticky="nsw")
         side.grid_propagate(False)
         side.grid_rowconfigure(3, weight=1)
@@ -722,6 +736,7 @@ class App(ctk.CTk):
             row.pack(fill="x", pady=2)
             self.profile_rows.append(row)
         self.add_btn.configure(state="normal" if len(self.config_data["profiles"]) < core.MAX_PROFILES else "disabled")
+        self._fit_sidebar_width()
 
         has_profile = current is not None
         if has_profile:
@@ -735,6 +750,27 @@ class App(ctk.CTk):
             w.configure(state="normal" if has_profile else "disabled")
         self.refresh_target_bar()
 
+    @staticmethod
+    def _sidebar_name(name: str) -> str:
+        """Name as shown in the sidebar: shortened with "…" if it is too long or too wide."""
+        if len(name) > core.MAX_PROFILE_NAME:
+            name = name[:core.MAX_PROFILE_NAME - 1] + "…"
+        font = ctk.CTkFont(size=14, weight="bold")
+        max_px = SIDEBAR_MAX_WIDTH - SIDEBAR_ROW_EXTRA
+        while font.measure(name) > max_px and len(name) > 2:
+            name = name.rstrip("…")[:-1] + "…"
+        return name
+
+    def _fit_sidebar_width(self):
+        """Make the sidebar as wide as the longest profile name (never narrower than the default)."""
+        # Widest style (the active profile). CTkFont and widget widths are both unscaled units.
+        font = ctk.CTkFont(size=14, weight="bold")
+        longest = max((font.measure(self._sidebar_name(p["name"])) for p in self.config_data["profiles"]),
+                      default=0)
+        width = min(SIDEBAR_MAX_WIDTH, max(SIDEBAR_MIN_WIDTH, int(longest) + SIDEBAR_ROW_EXTRA))
+        if self.sidebar.cget("width") != width:
+            self.sidebar.configure(width=width)
+
     def _make_profile_row(self, profile: Dict, active: bool) -> ctk.CTkFrame:
         """Sidebar entry: color square + name. Click selects it, dragging reorders the profiles."""
         idle_bg = ACCENT if active else "transparent"
@@ -744,7 +780,7 @@ class App(ctk.CTk):
         swatch = ctk.CTkFrame(row, width=16, height=16, corner_radius=5, fg_color=profile.get("color") or ACCENT,
                               border_width=2 if active else 0, border_color=("white", "white"))
         swatch.pack(side="left", padx=(12, 10))
-        label = ctk.CTkLabel(row, text=profile["name"], anchor="w",
+        label = ctk.CTkLabel(row, text=self._sidebar_name(profile["name"]), anchor="w",
                              text_color=("white", "white") if active else ("gray10", "gray90"),
                              font=ctk.CTkFont(size=14, weight="bold" if active else "normal"))
         label.pack(side="left", fill="x", expand=True, padx=(0, 8))

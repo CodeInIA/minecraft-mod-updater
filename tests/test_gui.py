@@ -124,3 +124,26 @@ def test_profile_dialog_returns_color(app):
     dialog._set_color("#123456")
     dialog._save()
     assert dialog.result["color"] == "#123456"
+
+
+def test_profile_name_is_limited(app):
+    import mod_updater
+    dialog = mod_updater.ProfileDialog(app)
+    dialog.name_var.set("x" * (core.MAX_PROFILE_NAME + 10))
+    assert len(dialog.name_var.get()) == core.MAX_PROFILE_NAME
+    dialog.destroy()
+
+
+def test_sidebar_width_follows_longest_name(app):
+    import mod_updater
+    base = {"path": "x", "game_version": core.AUTO, "loader": core.AUTO, "color": core.PROFILE_COLORS[0]}
+    app.config_data["profiles"] = [dict(base, name="a"), dict(base, name="b")]
+    app.config_data["current_profile"] = "a"
+    app.refresh_profiles()
+    assert app.sidebar.cget("width") == mod_updater.SIDEBAR_MIN_WIDTH
+    app.config_data["profiles"].append(dict(base, name="ScriptKiddies-server-mods-26.3"))
+    app.refresh_profiles()
+    assert mod_updater.SIDEBAR_MIN_WIDTH < app.sidebar.cget("width") <= mod_updater.SIDEBAR_MAX_WIDTH
+    app.config_data["profiles"].append(dict(base, name="W" * 40))
+    app.refresh_profiles()
+    assert app.sidebar.cget("width") <= mod_updater.SIDEBAR_MAX_WIDTH
