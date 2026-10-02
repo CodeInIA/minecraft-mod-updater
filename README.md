@@ -96,11 +96,11 @@ The updater works by:
 
 ## 🤝 Contributing
 
-Feel free to fork this project and submit pull requests with improvements!
+Suggestions and bug reports are welcome through issues.
 
 ## 📜 License
 
-This project is released under the MIT License.
+Copyright (c) 2025-2026 CodeInIA. Free for personal, non-commercial use; all other rights reserved. See [LICENSE](LICENSE).
 
 ---
 
@@ -168,7 +168,7 @@ pip install requests rich packaging
 3. Realiza tus cambios y envía un pull request
 
 ## Licencia
-Este proyecto está licenciado bajo la [MIT License](LICENSE).
+Copyright (c) 2025-2026 CodeInIA. Uso gratuito solo personal y no comercial; resto de derechos reservados. Consulta [LICENSE](LICENSE).
 
 ---
 
