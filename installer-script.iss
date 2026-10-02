@@ -138,6 +138,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [InstallDelete]
 ; Files left by the 1.x console version
 Type: files; Name: "{app}\README.md"
+; Start every upgrade with a clean copy of the bundled libraries, so files that a newer
+; version no longer uses do not stay behind (installing only overwrites, never removes).
+Type: filesandordirs; Name: "{app}\_internal"
 
 [Files]
 Source: "dist\mod_updater\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
