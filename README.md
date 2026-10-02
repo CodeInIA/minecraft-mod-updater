@@ -8,9 +8,9 @@ A desktop app to keep your Minecraft mods up to date with the latest versions fr
 
 - **Works with every Minecraft version**, including the new year-based versions (`26.1`, `26.3`, snapshots…). The version list comes live from Modrinth, nothing is hard-coded.
 - **Any loader**: Fabric, NeoForge, Forge, Quilt (also uses Fabric mods) and every other loader Modrinth supports.
-- **Graphical interface** with light/dark theme, mod list, filter and per-mod selection.
+- **Graphical interface** with light/dark theme: every mod is listed with its Modrinth icon, installed and available version and status, with a filter, "Select all" and per-mod selection. Click a mod's name to open its Modrinth page.
 - **14 languages**: English, Spanish, Portuguese, French, German, Italian, Dutch, Polish, Russian, Ukrainian, Turkish, Japanese, Korean and Chinese. The app and the Windows installer use the operating system's language automatically (English if it is not available); the app language can also be changed in Settings.
-- **Multiple profiles** (client, server, modpacks…), each with its own folder, Minecraft version and loader.
+- **Multiple profiles** (client, server, modpacks…), each with its own folder, Minecraft version, loader and color. Drag them in the sidebar to reorder them.
 - **Automatic detection** (default): the Minecraft version and loader are detected from the mods already in the profile folder every time you check for updates.
 - **Migrate a modpack to a new Minecraft version**: pick the new version and every mod is swapped for its build for that version.
 - **Safe updates**: downloads are verified by SHA-512, replaced files are moved to a backup folder, and disabled mods (`.jar.disabled`) stay disabled.
@@ -24,7 +24,7 @@ A desktop app to keep your Minecraft mods up to date with the latest versions fr
 | macOS (Apple Silicon) | [MinecraftModUpdater_macOS.dmg](https://github.com/CodeInIA/minecraft-mod-updater/releases/latest/download/MinecraftModUpdater_macOS.dmg) | Drag the app to Applications. The app is not signed: the first time, right-click → Open (or System Settings → Privacy & Security → Open Anyway). |
 | Linux x64 | [MinecraftModUpdater_Linux.tar.gz](https://github.com/CodeInIA/minecraft-mod-updater/releases/latest/download/MinecraftModUpdater_Linux.tar.gz) | Extract it and run `./install.sh` (installs for your user, no root). `./install.sh --uninstall` removes it. |
 
-Python is **not** required. Every commit to `main` automatically publishes a new release for all three systems — see [Releases](https://github.com/CodeInIA/minecraft-mod-updater/releases).
+Python is **not** required. New versions are published automatically for the three systems once they pass the tests, and the app installs them by itself — see [Releases](https://github.com/CodeInIA/minecraft-mod-updater/releases).
 
 ## 🚀 Running from source
 
@@ -37,10 +37,10 @@ python mod_updater.py
 
 ## 💻 Usage
 
-1. Create a profile (or edit the default `client` one) and choose its mods folder. The default is the official launcher's `mods` folder (`%APPDATA%\.minecraft\mods` on Windows, `~/Library/Application Support/minecraft/mods` on macOS, `~/.minecraft/mods` on Linux).
+1. Create a profile (or edit the default `client` one), choose its mods folder and, if you like, a color. The default is the official launcher's `mods` folder (`%APPDATA%\.minecraft\mods` on Windows, `~/Library/Application Support/minecraft/mods` on macOS, `~/.minecraft/mods` on Linux).
 2. Leave Minecraft version and loader on **Auto** to detect them from the mods in the folder, or choose a specific version to migrate your mods to it.
-3. Press **Check for updates**. Each mod shows its installed version, the available version and its status.
-4. Tick the mods you want and press **Update selected**.
+3. Press **Check for updates**. Each mod shows its icon, installed version, available version and status; click its name to open it on Modrinth.
+4. Tick the mods you want (or use **Select all**) and press **Update selected**.
 
 Settings (⚙): backups on/off, allow beta/alpha mod versions, show Minecraft snapshots, theme, language, and automatic or manual updates of the app.
 
@@ -79,9 +79,9 @@ Aplicación de escritorio para mantener tus mods de Minecraft actualizados desde
 ## Características
 - Funciona con **todas las versiones de Minecraft**, incluidas las nuevas (`26.1`, `26.3`, snapshots…).
 - Fabric, NeoForge, Forge, Quilt y el resto de loaders de Modrinth.
-- Interfaz gráfica con tema claro/oscuro, lista de mods, filtro y selección individual.
+- Interfaz gráfica con tema claro/oscuro: cada mod aparece con su icono de Modrinth, la versión instalada y la disponible y su estado, con filtro, «Seleccionar todo» y selección individual. Haz clic en el nombre de un mod para abrir su página de Modrinth.
 - **14 idiomas**: inglés, español, portugués, francés, alemán, italiano, neerlandés, polaco, ruso, ucraniano, turco, japonés, coreano y chino. La app y el instalador de Windows usan automáticamente el idioma del sistema operativo (inglés si no está disponible); el idioma de la app también se puede cambiar en Ajustes.
-- Varios perfiles, cada uno con su carpeta, versión de Minecraft y loader.
+- Varios perfiles (cliente, servidor, modpacks…), cada uno con su carpeta, versión de Minecraft, loader y color. Se reordenan arrastrándolos en la barra lateral.
 - Detección automática (por defecto) de la versión de Minecraft y el loader a partir de los mods de la carpeta del perfil.
 - Migración de un modpack a otra versión de Minecraft.
 - Descargas verificadas, copia de seguridad de los mods sustituidos y respeto de los mods desactivados.
@@ -94,15 +94,16 @@ Aplicación de escritorio para mantener tus mods de Minecraft actualizados desde
 | macOS (Apple Silicon) | [MinecraftModUpdater_macOS.dmg](https://github.com/CodeInIA/minecraft-mod-updater/releases/latest/download/MinecraftModUpdater_macOS.dmg) | Arrastra la app a Aplicaciones. No está firmada: la primera vez, clic derecho → Abrir (o Ajustes → Privacidad y seguridad → Abrir igualmente). |
 | Linux x64 | [MinecraftModUpdater_Linux.tar.gz](https://github.com/CodeInIA/minecraft-mod-updater/releases/latest/download/MinecraftModUpdater_Linux.tar.gz) | Descomprime y ejecuta `./install.sh` (se instala para tu usuario, sin root). `./install.sh --uninstall` lo desinstala. |
 
-**No** necesitas Python. Cada commit a `main` publica automáticamente una release nueva para los tres sistemas.
+**No** necesitas Python. Las versiones nuevas se publican automáticamente para los tres sistemas cuando pasan los tests, y la app las instala sola — consulta las [Releases](https://github.com/CodeInIA/minecraft-mod-updater/releases).
 
 ## Uso
-1. Crea un perfil (o edita `client`) y elige su carpeta de mods.
+1. Crea un perfil (o edita `client`), elige su carpeta de mods y, si quieres, un color.
 2. Deja la versión y el loader en **Auto** para detectarlos de los mods de la carpeta, o elige una versión concreta para migrar los mods a ella.
-3. Pulsa **Buscar actualizaciones**.
-4. Marca los mods que quieras y pulsa **Actualizar seleccionados**.
+3. Pulsa **Buscar actualizaciones**. Cada mod muestra su icono, la versión instalada, la disponible y su estado; haz clic en su nombre para abrirlo en Modrinth.
+4. Marca los mods que quieras (o usa **Seleccionar todo**) y pulsa **Actualizar seleccionados**.
 
 ## Desde el código fuente
+Requiere Python 3.10 o superior.
 ```bash
 pip install -r requirements.txt
 python mod_updater.py
