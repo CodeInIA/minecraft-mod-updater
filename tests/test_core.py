@@ -147,6 +147,7 @@ class FakeClient:
         self._projects = projects or {}
         self.payloads = payloads or {}
         self.latest_calls = []
+        self.all_versions = []  # versions reachable through versions()/project_versions()
 
     def versions_from_hashes(self, hashes):
         return {h: self.current[h] for h in hashes if h in self.current}
@@ -157,6 +158,14 @@ class FakeClient:
 
     def projects(self, ids):
         return {i: self._projects[i] for i in ids if i in self._projects}
+
+    def versions(self, ids):
+        return [v for v in self.all_versions if v["id"] in ids]
+
+    def project_versions(self, project_id, loaders, game_versions):
+        found = [v for v in self.all_versions if v["project_id"] == project_id
+                 and set(v["loaders"]) & set(loaders) and set(v["game_versions"]) & set(game_versions)]
+        return sorted(found, key=lambda v: v["date_published"], reverse=True)
 
     def download(self, url, destination, expected_sha512):
         with open(destination, "wb") as f:
@@ -221,7 +230,7 @@ def test_scan_with_fixed_target_and_update(tmp_path):
     backup = core.update_mods(client, to_update, str(mods_dir), True, lambda f, m: None)
     assert all(m.status == core.STATUS_UPDATED for m in to_update)
     assert sorted(os.listdir(mods_dir)) == ["lithium-0.26.jar.disabled", "local.jar", "sodium-0.9.jar"]
-    assert sorted(os.listdir(backup)) == ["lithium-old.jar.disabled", "sodium-old.jar"]
+    assert sorted(os.listdir(backup)) == ["lithium-old.jar.disabled", "manifest.json", "sodium-old.jar"]
     assert not str(backup).startswith(str(mods_dir))  # backups live outside the mods folder
 
 

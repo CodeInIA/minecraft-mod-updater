@@ -45,6 +45,20 @@ def test_old_mod_is_detected_and_updated(client, tmp_path):
     assert os.listdir(mods_dir) == [mod.filename]
 
 
+def test_missing_dependencies_are_found(client, tmp_path):
+    """Mod Menu needs Fabric API: without it in the folder, the scan must offer it."""
+    versions = client._request("GET", "/project/modmenu/version",
+                               params={"loaders": '["fabric"]', "game_versions": '["1.21.4"]'})
+    file_info = core.primary_file(versions[0])
+    mods_dir = tmp_path / "mods"
+    mods_dir.mkdir()
+    client.download(file_info["url"], str(mods_dir / file_info["filename"]), file_info["hashes"]["sha512"])
+    result = core.scan_mods(client, str(mods_dir), core.AUTO, core.AUTO, False, lambda f, m: None)
+    missing = {m.display_name: m for m in result.mods if m.status == core.STATUS_MISSING_DEP}
+    assert "Fabric API" in missing and missing["Fabric API"].actionable
+    assert missing["Fabric API"].required_by == ["Mod Menu"]
+
+
 def test_github_latest_release_has_all_installers(monkeypatch):
     # GitHub allows only 60 anonymous API calls per hour per IP, and CI runners share IPs.
     # In the workflow the job token is used so this test is not rate limited.

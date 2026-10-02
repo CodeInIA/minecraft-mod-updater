@@ -2,6 +2,7 @@
 
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -15,6 +16,7 @@ import customtkinter as ctk
 
 import app_updater
 import i18n
+import launchers
 import updater_core as core
 import mod_icons
 from mod_icons import IconCache
@@ -34,11 +36,13 @@ PROFILE_SLOT = PROFILE_ROW_HEIGHT + 4  # row + gap in the sidebar list
 SIDEBAR_MAX_WIDTH = 380  # only reached by unusually wide 32-character names
 # Space around a profile name in the sidebar: color square, paddings and the scrollbar
 SIDEBAR_ROW_EXTRA = 100
+MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")  # [text](url) -> text in changelogs
 TREE_ITEM_PADDING = 10  # left padding of rows in the mod table (see _style_tree)
 
 # Display order of statuses in the table
-STATUS_ORDER = [core.STATUS_UPDATE, core.STATUS_UP_TO_DATE, core.STATUS_NOT_FOUND,
-                core.STATUS_NO_COMPATIBLE, core.STATUS_UPDATED, core.STATUS_FAILED]
+STATUS_ORDER = [core.STATUS_MISSING_DEP, core.STATUS_UPDATE, core.STATUS_UP_TO_DATE, core.STATUS_IGNORED,
+                core.STATUS_NOT_FOUND, core.STATUS_NO_COMPATIBLE, core.STATUS_INSTALLED, core.STATUS_UPDATED,
+                core.STATUS_FAILED]
 # (light, dark) foreground per status
 STATUS_COLORS = {
     core.STATUS_UPDATE: ("#B26A00", "#F0B44C"),
@@ -47,11 +51,27 @@ STATUS_COLORS = {
     core.STATUS_NO_COMPATIBLE: ("#B0413E", "#E57373"),
     core.STATUS_UPDATED: ("#1F8A4C", "#7BE0A3"),
     core.STATUS_FAILED: ("#C62828", "#FF6B6B"),
+    core.STATUS_MISSING_DEP: ("#6D28D9", "#B79CFF"),
+    core.STATUS_INSTALLED: ("#1F8A4C", "#7BE0A3"),
+    core.STATUS_IGNORED: ("#7A8088", "#8A9099"),
 }
+CONTENT_ORDER = ["mods", "resourcepacks", "shaderpacks", "datapacks"]
 
 
 def status_label(status: str) -> str:
     return t(f"status_{status}")
+
+
+def row_status(mod: core.ModInfo) -> str:
+    """Status column text, with the client/server warning when there is one."""
+    text = status_label(mod.status)
+    if mod.side_warning:
+        text += "  ·  ⚠ " + t(f"side_{mod.side_warning}")
+    return text
+
+
+def content_label(content: str) -> str:
+    return t(f"content_{content}")
 
 
 def to_label(value: str) -> str:
@@ -126,7 +146,7 @@ class ProfileDialog(Dialog):
     """Create or edit a profile. `self.result` holds the profile dict on save."""
 
     def __init__(self, app: "App", profile: Optional[Dict] = None):
-        super().__init__(app, t("edit_profile") if profile else t("new_profile"), 580, 440)
+        super().__init__(app, t("edit_profile") if profile else t("new_profile"), 600, 540)
         self.app = app
         self.original = profile
         self.result: Optional[Dict] = None
@@ -136,12 +156,16 @@ class ProfileDialog(Dialog):
             "game_version": core.AUTO,
             "loader": core.AUTO,
             "color": core.next_profile_color(app.config_data["profiles"]),
+            "content": core.CONTENT_MODS,
+            "server": False,
         }
         self.color = profile.get("color") or core.PROFILE_COLORS[0]
+        self.content = profile.get("content", core.CONTENT_MODS)
 
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=24, pady=20)
         body.grid_columnconfigure(1, weight=1)
+        body.grid_columnconfigure(0, minsize=110)  # room for the longest label
 
         ctk.CTkLabel(body, text=t("new_profile") if not self.original else t("edit_profile"),
                      font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 16))
@@ -152,27 +176,37 @@ class ProfileDialog(Dialog):
         ctk.CTkEntry(body, textvariable=self.name_var, placeholder_text=t("name_placeholder")).grid(
             row=1, column=1, columnspan=2, sticky="ew", pady=6)
 
-        ctk.CTkLabel(body, text=t("mods_folder")).grid(row=2, column=0, sticky="w", pady=6, padx=(0, 12))
-        self.path_var = tk.StringVar(value=profile["path"])
-        ctk.CTkEntry(body, textvariable=self.path_var).grid(row=2, column=1, sticky="ew", pady=6)
-        ctk.CTkButton(body, text=t("browse"), width=96, command=self._browse).grid(row=2, column=2, padx=(8, 0), pady=6)
+        ctk.CTkLabel(body, text=t("content")).grid(row=2, column=0, sticky="w", pady=6)
+        self.content_names = {content_label(c): c for c in CONTENT_ORDER}
+        self.content_var = tk.StringVar(value=content_label(self.content))
+        ctk.CTkOptionMenu(body, variable=self.content_var, values=list(self.content_names),
+                          command=lambda _v: self._content_changed()).grid(row=2, column=1, sticky="ew", pady=6)
 
-        ctk.CTkLabel(body, text="Minecraft").grid(row=3, column=0, sticky="w", pady=6)
+        ctk.CTkLabel(body, text=t("folder")).grid(row=3, column=0, sticky="w", pady=6, padx=(0, 12))
+        self.path_var = tk.StringVar(value=profile["path"])
+        ctk.CTkEntry(body, textvariable=self.path_var).grid(row=3, column=1, sticky="ew", pady=6)
+        ctk.CTkButton(body, text=t("browse"), width=96, command=self._browse).grid(row=3, column=2, padx=(8, 0), pady=6)
+
+        ctk.CTkLabel(body, text="Minecraft").grid(row=4, column=0, sticky="w", pady=6)
         self.version_var = tk.StringVar(value=to_label(profile["game_version"]))
         ctk.CTkComboBox(body, variable=self.version_var, values=app.version_choices()).grid(
-            row=3, column=1, sticky="ew", pady=6)
+            row=4, column=1, sticky="ew", pady=6)
         self.detect_btn = ctk.CTkButton(body, text=t("detect"), width=96, fg_color="transparent", border_width=1,
                                         text_color=("gray10", "gray90"), command=self._detect)
-        self.detect_btn.grid(row=3, column=2, padx=(8, 0), pady=6)
+        self.detect_btn.grid(row=4, column=2, padx=(8, 0), pady=6)
 
-        ctk.CTkLabel(body, text=t("loader")).grid(row=4, column=0, sticky="w", pady=6)
+        ctk.CTkLabel(body, text=t("loader")).grid(row=5, column=0, sticky="w", pady=6)
         self.loader_var = tk.StringVar(value=to_label(profile["loader"]))
-        ctk.CTkOptionMenu(body, variable=self.loader_var, values=app.loader_choices()).grid(
-            row=4, column=1, sticky="ew", pady=6)
+        self.loader_menu = ctk.CTkOptionMenu(body, variable=self.loader_var, values=app.loader_choices())
+        self.loader_menu.grid(row=5, column=1, sticky="ew", pady=6)
 
-        ctk.CTkLabel(body, text=t("color")).grid(row=5, column=0, sticky="w", pady=6)
+        self.server_var = tk.BooleanVar(value=bool(profile.get("server")))
+        ctk.CTkSwitch(body, text=t("server_profile"), variable=self.server_var, progress_color=ACCENT).grid(
+            row=6, column=1, columnspan=2, sticky="w", pady=6)
+
+        ctk.CTkLabel(body, text=t("color")).grid(row=7, column=0, sticky="w", pady=6)
         swatches = ctk.CTkFrame(body, fg_color="transparent")
-        swatches.grid(row=5, column=1, columnspan=2, sticky="w", pady=6)
+        swatches.grid(row=7, column=1, columnspan=2, sticky="w", pady=6)
         self.swatches: Dict[str, ctk.CTkFrame] = {}
         for color in core.PROFILE_COLORS:
             swatch = ctk.CTkFrame(swatches, width=24, height=24, corner_radius=6, fg_color=color,
@@ -186,8 +220,9 @@ class ProfileDialog(Dialog):
         self.custom_btn.pack(side="left")
         self._set_color(self.color)
 
-        self.hint = ctk.CTkLabel(body, text=t("profile_hint"), text_color=MUTED, wraplength=520, justify="left")
-        self.hint.grid(row=6, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        self.hint = ctk.CTkLabel(body, text=t("profile_hint"), text_color=MUTED, wraplength=540, justify="left")
+        self.hint.grid(row=8, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        self._content_changed(initial=True)
 
         buttons = ctk.CTkFrame(self, fg_color="transparent")
         buttons.pack(fill="x", padx=24, pady=(0, 20))
@@ -199,6 +234,19 @@ class ProfileDialog(Dialog):
         self.bind("<Escape>", lambda _e: self.destroy())
         if os.path.isdir(self.path_var.get()):
             self.after(300, self._detect)
+
+    def _content_changed(self, initial: bool = False):
+        """Mods use a loader; resource packs, shaders and data packs do not. Suggest the matching folder."""
+        new = self.content_names[self.content_var.get()]
+        is_mods = new == core.CONTENT_MODS
+        self.loader_menu.configure(state="normal" if is_mods else "disabled")
+        if not is_mods:
+            self.loader_var.set(t("auto"))
+        if not initial and new != self.content:
+            defaults = {os.path.normcase(core.content_folder(c)) for c in CONTENT_ORDER}
+            if not self.path_var.get().strip() or os.path.normcase(self.path_var.get().strip()) in defaults:
+                self.path_var.set(core.content_folder(new))
+        self.content = new
 
     def _limit_name(self):
         name = self.name_var.get()
@@ -250,7 +298,8 @@ class ProfileDialog(Dialog):
                 self.detect_btn.configure(state="normal", text=t("detect"))
                 self.hint.configure(text=str(err), text_color=DANGER)
 
-        self.app.run_task(lambda: core.detect_target(self.app.client, path), done, failed)
+        content = self.content
+        self.app.run_task(lambda: core.detect_target(self.app.client, path, content), done, failed)
 
     def _save(self):
         name = self.name_var.get().strip()
@@ -268,11 +317,172 @@ class ProfileDialog(Dialog):
         if not game_version:
             return self._error(t("err_version_required"))
         self.result = {"name": name, "path": path, "game_version": from_label(game_version),
-                       "loader": from_label(self.loader_var.get()), "color": self.color}
+                       "loader": from_label(self.loader_var.get()), "color": self.color,
+                       "content": self.content, "server": bool(self.server_var.get())}
         self.destroy()
 
     def _error(self, text: str):
         self.hint.configure(text=text, text_color=DANGER)
+
+
+class ChangelogDialog(Dialog):
+    """Notes of every version between the installed one and the one that would be installed."""
+
+    def __init__(self, app: "App", mod: core.ModInfo, game_version: str, loaders: List[str]):
+        super().__init__(app, t("changelog_title", mod=mod.display_name), 640, 520)
+        ctk.CTkLabel(self, text=t("changelog_title", mod=mod.display_name),
+                     font=ctk.CTkFont(size=18, weight="bold"), anchor="w").pack(fill="x", padx=20, pady=(18, 4))
+        ctk.CTkLabel(self, text=f"{mod.current_version}  →  {mod.latest_version}", text_color=MUTED,
+                     anchor="w").pack(fill="x", padx=20)
+        self.text = ctk.CTkTextbox(self, wrap="word", font=ctk.CTkFont(size=13))
+        self.text.pack(fill="both", expand=True, padx=20, pady=12)
+        self.text.insert("end", t("changelog_loading"))
+        self.text.configure(state="disabled")
+        ctk.CTkButton(self, text=t("close"), width=110, command=self.destroy).pack(pady=(0, 16))
+        self.bind("<Escape>", lambda _e: self.destroy())
+        app.run_task(lambda: core.changelog_entries(app.client, mod, game_version, loaders),
+                     self._show, lambda e: self._set_text(t("changelog_failed", error=e)))
+
+    def _set_text(self, text: str):
+        if not self.winfo_exists():
+            return
+        self.text.configure(state="normal")
+        self.text.delete("1.0", "end")
+        self.text.insert("end", text)
+        self.text.configure(state="disabled")
+
+    def _show(self, entries: List[Dict]):
+        blocks = []
+        for e in entries:
+            kind = "" if e["type"] == "release" else f"  [{e['type']}]"
+            notes = MARKDOWN_LINK.sub(r"\1", e["changelog"]) or t("changelog_empty")
+            blocks.append(f"{e['version']}  ·  {e['date']}{kind}\n{'─' * 40}\n{notes}")
+        self._set_text("\n\n".join(blocks) or t("changelog_empty"))
+
+
+class BackupsDialog(Dialog):
+    """List the backups of the current profile and undo the latest update."""
+
+    def __init__(self, app: "App"):
+        super().__init__(app, t("backups_title"), 620, 500)
+        self.app = app
+        self.folder = app.current_profile()["path"]
+        ctk.CTkLabel(self, text=t("backups_title"), font=ctk.CTkFont(size=20, weight="bold"),
+                     anchor="w").pack(fill="x", padx=22, pady=(18, 2))
+        ctk.CTkLabel(self, text=t("backups_hint"), text_color=MUTED, wraplength=570, justify="left",
+                     anchor="w").pack(fill="x", padx=22)
+        self.list = ctk.CTkScrollableFrame(self, fg_color=CARD_BG, corner_radius=10)
+        self.list.pack(fill="both", expand=True, padx=22, pady=12)
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.pack(fill="x", padx=22, pady=(0, 18))
+        ctk.CTkButton(buttons, text=t("close"), width=110, command=self.destroy).pack(side="right")
+        ctk.CTkButton(buttons, text=t("open_backups_folder"), fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"),
+                      command=lambda: open_folder(core.backup_root(self.folder))).pack(side="left")
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self._fill()
+
+    def _fill(self):
+        for child in self.list.winfo_children():
+            child.destroy()
+        backups = core.list_backups(self.folder)
+        if not backups:
+            ctk.CTkLabel(self.list, text=t("backups_none"), text_color=MUTED, wraplength=520,
+                         justify="left").pack(padx=12, pady=16, anchor="w")
+            return
+        for index, backup in enumerate(backups):
+            row = ctk.CTkFrame(self.list, fg_color="transparent")
+            row.pack(fill="x", padx=8, pady=6)
+            when = backup.created.strftime("%Y-%m-%d %H:%M")
+            names = ", ".join(e.get("title", "?") for e in backup.entries[:4])
+            if len(backup.entries) > 4:
+                names += ", …"
+            text_box = ctk.CTkFrame(row, fg_color="transparent")
+            text_box.pack(side="left", fill="x", expand=True)
+            ctk.CTkLabel(text_box, text=t("backup_item", date=when, n=len(backup.entries)),
+                         font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(fill="x")
+            ctk.CTkLabel(text_box, text=names, text_color=MUTED, anchor="w", wraplength=360,
+                         justify="left").pack(fill="x")
+            ctk.CTkButton(row, text=t("delete_backup"), width=80, fg_color="transparent", border_width=1,
+                          border_color=DANGER, text_color=DANGER, hover_color=("#F6DADA", "#3A2222"),
+                          command=lambda b=backup, w=when: self._delete(b, w)).pack(side="right", padx=(6, 0))
+            # Updates are undone from the newest one backwards
+            ctk.CTkButton(row, text=t("restore"), width=100, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                          state="normal" if index == 0 else "disabled",
+                          command=lambda b=backup, w=when: self._restore(b, w)).pack(side="right")
+
+    def _restore(self, backup: core.Backup, when: str):
+        if self.app.busy or not messagebox.askyesno(
+                t("backups_title"), t("restore_confirm", date=when, n=len(backup.entries)), parent=self):
+            return
+        errors = core.restore_backup(backup)
+        self.app._clear_results()
+        if errors:
+            messagebox.showwarning(t("backups_title"), t("restore_failed", details="\n".join(errors[:15])),
+                                   parent=self)
+        else:
+            self.app.status_label.configure(text=t("restore_done", n=len(backup.entries)))
+        self._fill()
+
+    def _delete(self, backup: core.Backup, when: str):
+        if messagebox.askyesno(t("backups_title"), t("delete_backup_confirm", date=when), icon="warning",
+                               parent=self):
+            core.delete_backup(backup)
+            self._fill()
+
+
+class ImportDialog(Dialog):
+    """Create profiles from the instances of other launchers."""
+
+    def __init__(self, app: "App"):
+        super().__init__(app, t("import_title"), 640, 520)
+        self.app = app
+        self.result: List[launchers.Instance] = []
+        ctk.CTkLabel(self, text=t("import_title"), font=ctk.CTkFont(size=20, weight="bold"),
+                     anchor="w").pack(fill="x", padx=22, pady=(18, 2))
+        ctk.CTkLabel(self, text=t("import_hint"), text_color=MUTED, wraplength=590, justify="left",
+                     anchor="w").pack(fill="x", padx=22)
+        self.list = ctk.CTkScrollableFrame(self, fg_color=CARD_BG, corner_radius=10)
+        self.list.pack(fill="both", expand=True, padx=22, pady=12)
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.pack(fill="x", padx=22, pady=(0, 18))
+        self.import_btn = ctk.CTkButton(buttons, text=t("import_selected", n=0), fg_color=ACCENT,
+                                        hover_color=ACCENT_HOVER, command=self._import)
+        self.import_btn.pack(side="right")
+        ctk.CTkButton(buttons, text=t("cancel"), fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"), command=self.destroy).pack(side="right", padx=8)
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+        existing = {os.path.normcase(os.path.abspath(p["path"])) for p in app.config_data["profiles"]}
+        self.choices: List[Tuple[tk.BooleanVar, launchers.Instance]] = []
+        instances = launchers.find_instances()
+        if not instances:
+            ctk.CTkLabel(self.list, text=t("import_none"), text_color=MUTED, wraplength=540,
+                         justify="left").pack(padx=12, pady=16, anchor="w")
+        for inst in instances:
+            added = os.path.normcase(os.path.abspath(inst.mods_path)) in existing
+            var = tk.BooleanVar(value=not added)
+            row = ctk.CTkFrame(self.list, fg_color="transparent")
+            row.pack(fill="x", padx=8, pady=5)
+            label = t("instance_item", name=inst.name, launcher=inst.launcher, n=inst.mod_count)
+            if added:
+                label += f"  ({t('import_already')})"
+            ctk.CTkCheckBox(row, text=label, variable=var, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                            state="disabled" if added else "normal",
+                            command=self._refresh_button).pack(anchor="w")
+            ctk.CTkLabel(row, text=shorten_path(inst.mods_path, 70), text_color=MUTED,
+                         font=ctk.CTkFont(size=11), anchor="w").pack(anchor="w", padx=(28, 0))
+            if not added:
+                self.choices.append((var, inst))
+        self._refresh_button()
+
+    def _refresh_button(self):
+        n = sum(1 for var, _inst in self.choices if var.get())
+        self.import_btn.configure(text=t("import_selected", n=n), state="normal" if n else "disabled")
+
+    def _import(self):
+        self.result = [inst for var, inst in self.choices if var.get()]
+        self.destroy()
 
 
 class SettingsDialog(Dialog):
@@ -465,7 +675,10 @@ class App(ctk.CTk):
         try:
             while True:
                 fn, arg = self._queue.get_nowait()
-                fn(arg)
+                try:
+                    fn(arg)
+                except tk.TclError:
+                    pass  # the window a result was meant for has been closed
         except queue.Empty:
             pass
         self.after(50, self._poll_queue)
@@ -486,9 +699,11 @@ class App(ctk.CTk):
     def _set_busy(self, busy: bool):
         self.busy = busy
         state = "disabled" if busy else "normal"
-        for widget in (self.check_btn, self.add_btn, self.edit_btn, self.delete_btn, self.version_box,
-                       self.loader_menu, self.settings_btn, self.select_all_box):
+        for widget in (self.check_btn, self.add_btn, self.import_btn, self.edit_btn, self.delete_btn,
+                       self.backups_btn, self.version_box, self.loader_menu, self.settings_btn,
+                       self.select_all_box):
             widget.configure(state=state)
+        self._apply_content_state()
         if busy:
             self.update_btn.configure(state="disabled")
         else:
@@ -552,10 +767,17 @@ class App(ctk.CTk):
         self._drop_slot: Optional[ctk.CTkFrame] = None
         self._anim_job: Optional[str] = None
 
-        self.add_btn = ctk.CTkButton(side, text=t("new_profile_btn"), fg_color="transparent", border_width=1,
-                                     text_color=("gray10", "gray90"), border_color=MUTED,
+        profile_buttons = ctk.CTkFrame(side, fg_color="transparent")
+        profile_buttons.grid(row=4, column=0, sticky="ew", padx=16, pady=(8, 6))
+        profile_buttons.grid_columnconfigure(0, weight=1)
+        self.add_btn = ctk.CTkButton(profile_buttons, text=t("new_profile_btn"), fg_color="transparent",
+                                     border_width=1, text_color=("gray10", "gray90"), border_color=MUTED,
                                      command=self.add_profile)
-        self.add_btn.grid(row=4, column=0, sticky="ew", padx=16, pady=(8, 6))
+        self.add_btn.grid(row=0, column=0, sticky="ew")
+        self.import_btn = ctk.CTkButton(profile_buttons, text=t("import_btn"), fg_color="transparent",
+                                        border_width=1, text_color=("gray10", "gray90"), border_color=MUTED,
+                                        command=self.import_profiles)
+        self.import_btn.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         self.settings_btn = ctk.CTkButton(side, text=t("settings_btn"), fg_color="transparent",
                                           text_color=("gray10", "gray90"), hover_color=("gray80", "gray25"),
                                           anchor="w", command=lambda: SettingsDialog(self))
@@ -607,6 +829,8 @@ class App(ctk.CTk):
         ghost = dict(fg_color="transparent", border_width=1, text_color=("gray10", "gray90"), width=90)
         ctk.CTkButton(actions, text=t("open"), command=lambda: open_folder(self.current_profile()["path"])
                       if self.current_profile() else None, **ghost).pack(side="left", padx=4)
+        self.backups_btn = ctk.CTkButton(actions, text=t("backups_btn"), command=self.show_backups, **ghost)
+        self.backups_btn.pack(side="left", padx=4)
         self.edit_btn = ctk.CTkButton(actions, text=t("edit"), command=self.edit_profile, **ghost)
         self.edit_btn.pack(side="left", padx=4)
         self.delete_btn = ctk.CTkButton(actions, text=t("delete"), command=self.delete_profile,
@@ -674,6 +898,11 @@ class App(ctk.CTk):
         self.tree.bind("<Button-1>", self._on_tree_click)
         self.tree.bind("<Motion>", self._on_tree_motion)
         self.tree.bind("<Leave>", lambda _e: self._set_link_hover(None))
+        self.tree.bind("<Button-3>", self._on_tree_menu)
+        if sys.platform == "darwin":
+            self.tree.bind("<Button-2>", self._on_tree_menu)
+            self.tree.bind("<Control-Button-1>", self._on_tree_menu)
+        self.tree.bind("<Double-Button-1>", self._on_tree_double_click)
 
         # Footer: progress and update button
         footer = ctk.CTkFrame(main, fg_color="transparent")
@@ -757,7 +986,7 @@ class App(ctk.CTk):
             self.profile_swatch.pack_forget()
         self.profile_title.configure(text=current["name"] if has_profile else t("no_profiles"))
         self.profile_path.configure(text=shorten_path(current["path"]) if has_profile else t("create_profile_hint"))
-        for w in (self.edit_btn, self.delete_btn, self.check_btn):
+        for w in (self.edit_btn, self.delete_btn, self.check_btn, self.backups_btn):
             w.configure(state="normal" if has_profile else "disabled")
         self.refresh_target_bar()
 
@@ -932,6 +1161,19 @@ class App(ctk.CTk):
         if profile:
             self.version_var.set(to_label(profile.get("game_version")))
             self.loader_var.set(to_label(profile.get("loader")))
+        self._apply_content_state()
+
+    def _profile_content(self) -> str:
+        profile = self.current_profile()
+        return profile.get("content", core.CONTENT_MODS) if profile else core.CONTENT_MODS
+
+    def _apply_content_state(self):
+        """Resource packs, shaders and data packs have no mod loader to choose."""
+        if self._profile_content() != core.CONTENT_MODS:
+            self.loader_var.set("—")
+            self.loader_menu.configure(state="disabled")
+        elif not self.busy:
+            self.loader_menu.configure(state="normal")
 
     def select_profile(self, name: str):
         if self.busy or name == self.config_data["current_profile"]:
@@ -963,6 +1205,39 @@ class App(ctk.CTk):
             core.save_config(self.config_data)
             self._clear_results()
             self.refresh_profiles()
+
+    def import_profiles(self):
+        dialog = ImportDialog(self)
+        self.wait_window(dialog)
+        if not dialog.result:
+            return
+        names = {p["name"] for p in self.config_data["profiles"]}
+        added = 0
+        for inst in dialog.result:
+            if len(self.config_data["profiles"]) >= core.MAX_PROFILES:
+                break
+            base = inst.name[:core.MAX_PROFILE_NAME]
+            name, n = base, 2
+            while name in names:  # keep names unique
+                suffix = f" ({n})"
+                name = base[:core.MAX_PROFILE_NAME - len(suffix)] + suffix
+                n += 1
+            names.add(name)
+            self.config_data["profiles"].append({
+                "name": name, "path": inst.mods_path, "game_version": core.AUTO, "loader": core.AUTO,
+                "color": core.next_profile_color(self.config_data["profiles"]), "content": core.CONTENT_MODS,
+                "server": False, "ignored": []})
+            added += 1
+        if added:
+            self.config_data["current_profile"] = self.config_data["profiles"][-1]["name"]
+            core.save_config(self.config_data)
+            self._clear_results()
+            self.refresh_profiles()
+            self.status_label.configure(text=t("import_done", n=added))
+
+    def show_backups(self):
+        if self.current_profile() and not self.busy:
+            self.wait_window(BackupsDialog(self))
 
     def delete_profile(self):
         profile = self.current_profile()
@@ -1067,7 +1342,8 @@ class App(ctk.CTk):
         if not profile:
             return
         new_version = from_label(self.version_var.get())
-        new_loader = from_label(self.loader_var.get())
+        new_loader = (from_label(self.loader_var.get()) if self._profile_content() == core.CONTENT_MODS
+                      else profile.get("loader", core.AUTO))
         if (new_version, new_loader) != (profile.get("game_version"), profile.get("loader")):
             profile["game_version"] = new_version
             profile["loader"] = new_loader
@@ -1096,15 +1372,19 @@ class App(ctk.CTk):
         self._clear_results()
         self._set_busy(True)
         allow_beta = self.config_data["allow_beta"]
+        content = profile.get("content", core.CONTENT_MODS)
+        ignored = list(profile.get("ignored", []))
+        server = bool(profile.get("server"))
         self.run_task(
-            lambda: core.scan_mods(self.client, path, game_version, profile["loader"], allow_beta, self._progress_cb),
+            lambda: core.scan_mods(self.client, path, game_version, profile["loader"], allow_beta,
+                                   self._progress_cb, content=content, ignored=ignored, server=server),
             self._on_scan_done)
 
     def _on_scan_done(self, result: core.ScanResult):
         self._set_busy(False)
         self.last_scan = result
         self.mods = result.mods
-        self.checked = {m.path for m in self.mods if m.status == core.STATUS_UPDATE}
+        self.checked = {m.path for m in self.mods if m.actionable}
         self._fill_tree()
         self._update_summary()
         self._show_scan_status(result)
@@ -1115,13 +1395,15 @@ class App(ctk.CTk):
 
     def _show_scan_status(self, result: core.ScanResult):
         mods = result.mods
+        is_mods = result.content == core.CONTENT_MODS
         if result.detected:
-            self.detected_label.configure(
-                text=f"→ {result.game_version or '?'} · {result.loader or '?'}",
-                text_color=ACCENT if result.game_version and result.loader else DANGER)
+            target = (f"→ {result.game_version or '?'} · {result.loader or '?'}" if is_mods
+                      else f"→ {result.game_version or '?'}")
+            self.detected_label.configure(text=target,
+                                          text_color=ACCENT if result.game_version and result.loaders else DANGER)
         if not mods:
-            self.status_label.configure(text=t("no_jars"))
-        elif not result.game_version or not result.loader:
+            self.status_label.configure(text=t("no_jars") if is_mods else t("no_files"))
+        elif not result.game_version or not result.loaders:
             self.status_label.configure(text=t("detect_failed"))
         else:
             pending = len(self.checked)
@@ -1130,7 +1412,7 @@ class App(ctk.CTk):
 
     def update_selected(self):
         profile = self.current_profile()
-        selected = [m for m in self.mods if m.path in self.checked and m.status == core.STATUS_UPDATE]
+        selected = [m for m in self.mods if m.path in self.checked and m.actionable]
         if not profile or not selected or self.busy:
             return
         self._set_busy(True)
@@ -1145,9 +1427,12 @@ class App(ctk.CTk):
         self.checked = set()
         self._fill_tree()
         self._update_summary()
-        ok = sum(1 for m in mods if m.status == core.STATUS_UPDATED)
+        ok = sum(1 for m in mods if m.status in (core.STATUS_UPDATED, core.STATUS_INSTALLED))
+        installed = sum(1 for m in mods if m.status == core.STATUS_INSTALLED)
         failed = [m for m in mods if m.status == core.STATUS_FAILED]
-        text = t("updated_count", n=ok)
+        text = t("updated_count", n=ok - installed)
+        if installed:
+            text += " " + t("installed_count", n=installed)
         if failed:
             text += " " + t("failed_count", n=len(failed))
         if backup_dir and ok:
@@ -1187,7 +1472,7 @@ class App(ctk.CTk):
         return sorted(mods, key=keyfn, reverse=reverse)
 
     def _row_image(self, mod: core.ModInfo):
-        check = (mod.path in self.checked) if mod.status == core.STATUS_UPDATE else None
+        check = (mod.path in self.checked) if mod.actionable else None
         return self.icons.row_image(mod.icon_url, check, is_dark())
 
     def _refresh_row_images(self):
@@ -1204,15 +1489,19 @@ class App(ctk.CTk):
             name = mod.display_name + (f"  {t('disabled_suffix')}" if mod.disabled else "")
             tags = [mod.status] + (["odd"] if i % 2 else [])
             self._row_tags[mod.path] = tags
+            installed = (t("needed_by", names=", ".join(mod.required_by[:3]) + ("…" if len(mod.required_by) > 3 else ""))
+                         if mod.status == core.STATUS_MISSING_DEP else mod.current_version)
             self.tree.insert("", "end", iid=mod.path, text="  " + name, image=self._row_image(mod),
-                             values=(mod.current_version, mod.latest_version, status_label(mod.status)), tags=tags)
+                             values=(installed, mod.latest_version, row_status(mod)), tags=tags)
         self._refresh_update_button()
 
     def _update_summary(self):
         counts = {s: 0 for s in STATUS_ORDER}
         for m in self.mods:
             counts[m.status] = counts.get(m.status, 0) + 1
-        parts = [t("sum_mods", n=len(self.mods))]
+        parts = [t("sum_mods", n=len([m for m in self.mods if m.status != core.STATUS_MISSING_DEP]))]
+        if counts[core.STATUS_MISSING_DEP]:
+            parts.append(t("sum_missing", n=counts[core.STATUS_MISSING_DEP]))
         if counts[core.STATUS_UPDATE]:
             parts.append(t("sum_update", n=counts[core.STATUS_UPDATE]))
         if counts[core.STATUS_UPDATED]:
@@ -1222,11 +1511,16 @@ class App(ctk.CTk):
             parts.append(t("sum_no_compatible", n=counts[core.STATUS_NO_COMPATIBLE]))
         if counts[core.STATUS_NOT_FOUND]:
             parts.append(t("sum_not_found", n=counts[core.STATUS_NOT_FOUND]))
+        if counts[core.STATUS_IGNORED]:
+            parts.append(t("sum_ignored", n=counts[core.STATUS_IGNORED]))
+        sides = sum(1 for m in self.mods if m.side_warning)
+        if sides:
+            parts.append(t("sum_side", n=sides))
         self.summary_label.configure(text="  ·  ".join(parts))
 
     def _refresh_update_button(self):
-        n = sum(1 for m in self.mods if m.path in self.checked and m.status == core.STATUS_UPDATE)
-        updatable = [m for m in self.mods if m.status == core.STATUS_UPDATE]
+        n = sum(1 for m in self.mods if m.path in self.checked and m.actionable)
+        updatable = [m for m in self.mods if m.actionable]
         self.select_all_var.set(bool(updatable) and all(m.path in self.checked for m in updatable))
         self.select_all_box.configure(state="normal" if updatable and not self.busy else "disabled")
         enabled = bool(n) and not self.busy
@@ -1256,7 +1550,7 @@ class App(ctk.CTk):
         if area == "link" and mod.page_url:
             webbrowser.open(mod.page_url)
             return
-        if self.busy or not mod or mod.status != core.STATUS_UPDATE:
+        if self.busy or not mod or not mod.actionable:
             return
         iid = mod.path
         self.checked.symmetric_difference_update({iid})
@@ -1266,13 +1560,65 @@ class App(ctk.CTk):
     def _toggle_all(self):
         if self.busy:
             return
-        updatable = {m.path for m in self._visible_mods() if m.status == core.STATUS_UPDATE}
+        updatable = {m.path for m in self._visible_mods() if m.actionable}
         if updatable and updatable <= self.checked:
             self.checked -= updatable
         else:
             self.checked |= updatable
         self._refresh_row_images()
         self._refresh_update_button()
+
+    def _on_tree_menu(self, event):
+        """Right-click menu of a mod: changelog, Modrinth page, (don't) update it, show the file."""
+        iid = self.tree.identify_row(event.y)
+        mod = next((m for m in self.mods if m.path == iid), None)
+        if not mod:
+            return
+        menu = tk.Menu(self, tearoff=False)
+        if mod.latest and self.last_scan:
+            menu.add_command(label=t("menu_changelog"), command=lambda: self.show_changelog(mod))
+        if mod.page_url:
+            menu.add_command(label=t("open_in_modrinth"), command=lambda: webbrowser.open(mod.page_url))
+        if mod.current and mod.project_id and not self.busy:
+            ignored = mod.status == core.STATUS_IGNORED
+            menu.add_command(label=t("menu_unignore") if ignored else t("menu_ignore"),
+                             command=lambda: self.set_ignored(mod, not ignored))
+        if os.path.exists(mod.path):
+            menu.add_command(label=t("menu_show_file"), command=lambda: open_folder(os.path.dirname(mod.path)))
+        if menu.index("end") is not None:
+            menu.tk_popup(event.x_root, event.y_root)
+
+    def _on_tree_double_click(self, event):
+        mod, area = self._hit_area(event)
+        if mod and area == "row" and mod.latest and self.last_scan:
+            self.show_changelog(mod)
+
+    def show_changelog(self, mod: core.ModInfo):
+        scan = self.last_scan
+        ChangelogDialog(self, mod, scan.game_version if scan else "", scan.loaders if scan else [])
+
+    def set_ignored(self, mod: core.ModInfo, ignored: bool):
+        """Stop (or resume) offering updates for a mod in the current profile."""
+        profile = self.current_profile()
+        if not profile or not mod.project_id:
+            return
+        listed = profile.setdefault("ignored", [])
+        if ignored and mod.project_id not in listed:
+            listed.append(mod.project_id)
+        elif not ignored and mod.project_id in listed:
+            listed.remove(mod.project_id)
+        core.save_config(self.config_data)
+        scan = self.last_scan
+        if ignored:
+            mod.status = core.STATUS_IGNORED
+            self.checked.discard(mod.path)
+        else:
+            mod.status = core.determine_status(mod, (scan.game_version or "") if scan else "",
+                                               scan.loaders if scan else [])
+            if mod.actionable:
+                self.checked.add(mod.path)
+        self._fill_tree()
+        self._update_summary()
 
     def _sort_by(self, column: str):
         key, reverse = self.sort_key

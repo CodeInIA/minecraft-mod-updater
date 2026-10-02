@@ -1,0 +1,156 @@
+"""Dependencies, ignored mods, client/server side, changelogs, backups, content types and the hash cache."""
+
+import json
+import os
+
+import updater_core as core
+from test_core import FakeClient, fake_modrinth, file_entry, make_mods_folder, sha, version
+
+NO_PROGRESS = lambda f, m: None  # noqa: E731
+
+
+def dependency_setup(tmp_path):
+    """Sodium's update requires 'fabric-api', which is not installed."""
+    mods_dir = make_mods_folder(tmp_path)
+    client = fake_modrinth()
+    client.latest[sha(b"sodium-old")]["dependencies"] = [
+        {"project_id": "fabric-api", "dependency_type": "required"},
+        {"project_id": "modmenu", "dependency_type": "optional"},
+    ]
+    api_payload = b"fabric-api-jar"
+    client.all_versions = [
+        version("API1", ["26.3"], ["fabric"], "2026-08-01", project="fabric-api", number="0.160",
+                files=[file_entry("fabric-api-0.160.jar", b"older")]),
+        version("API2", ["26.3"], ["fabric"], "2026-09-01", project="fabric-api", number="0.161",
+                files=[file_entry("fabric-api-0.161.jar", api_payload)]),
+    ]
+    for v in client.all_versions:
+        v["version_type"] = "release"
+    client._projects["fabric-api"] = {"title": "Fabric API", "slug": "fabric-api", "project_type": "mod"}
+    client.payloads["https://cdn.example/fabric-api-0.161.jar"] = api_payload
+    return mods_dir, client
+
+
+def test_missing_required_dependency_is_offered(tmp_path):
+    mods_dir, client = dependency_setup(tmp_path)
+    result = core.scan_mods(client, str(mods_dir), "26.3", "fabric", False, NO_PROGRESS)
+    deps = [m for m in result.mods if m.status == core.STATUS_MISSING_DEP]
+    assert [d.display_name for d in deps] == ["Fabric API"]
+    dep = deps[0]
+    assert dep.latest_version == "0.161" and dep.required_by == ["Sodium"] and dep.actionable
+    assert result.mods[0] is dep  # missing dependencies are listed first
+    assert dep.page_url == "https://modrinth.com/mod/fabric-api"
+
+
+def test_dependency_already_installed_is_not_offered(tmp_path):
+    mods_dir, client = dependency_setup(tmp_path)
+    client.latest[sha(b"sodium-old")]["dependencies"] = [{"project_id": "lithium", "dependency_type": "required"}]
+    result = core.scan_mods(client, str(mods_dir), "26.3", "fabric", False, NO_PROGRESS)
+    assert not [m for m in result.mods if m.status == core.STATUS_MISSING_DEP]
+
+
+def test_installing_a_dependency_and_undoing_it(tmp_path):
+    mods_dir, client = dependency_setup(tmp_path)
+    result = core.scan_mods(client, str(mods_dir), "26.3", "fabric", False, NO_PROGRESS)
+    todo = [m for m in result.mods if m.actionable]
+    backup_dir = core.update_mods(client, todo, str(mods_dir), True, NO_PROGRESS)
+    assert sorted(os.listdir(mods_dir)) == ["fabric-api-0.161.jar", "lithium-0.26.jar.disabled",
+                                            "local.jar", "sodium-0.9.jar"]
+    assert {m.display_name: m.status for m in todo}["Fabric API"] == core.STATUS_INSTALLED
+
+    backups = core.list_backups(str(mods_dir))
+    assert [b.path for b in backups] == [backup_dir]
+    assert core.restore_backup(backups[0]) == []
+    assert sorted(os.listdir(mods_dir)) == ["lithium-old.jar.disabled", "local.jar", "sodium-old.jar"]
+    assert not os.path.exists(backup_dir) and core.list_backups(str(mods_dir)) == []
+
+
+def test_backups_of_other_folders_are_not_listed(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    client = fake_modrinth()
+    result = core.scan_mods(client, str(mods_dir), "26.3", "fabric", False, NO_PROGRESS)
+    core.update_mods(client, [m for m in result.mods if m.actionable], str(mods_dir), True, NO_PROGRESS)
+    other = tmp_path / "resourcepacks"
+    other.mkdir()
+    assert core.list_backups(str(other)) == [] and len(core.list_backups(str(mods_dir))) == 1
+
+
+def test_no_backup_folder_left_when_nothing_was_updated(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    assert core.update_mods(fake_modrinth(), [], str(mods_dir), True, NO_PROGRESS) is None
+    assert not os.path.exists(core.backup_root(str(mods_dir)))
+
+
+def test_ignored_mods_are_not_offered(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    result = core.scan_mods(fake_modrinth(), str(mods_dir), "26.3", "fabric", False, NO_PROGRESS,
+                            ignored=["sodium"])
+    by_name = {m.display_name: m for m in result.mods}
+    assert by_name["Sodium"].status == core.STATUS_IGNORED and not by_name["Sodium"].actionable
+    assert by_name["Lithium"].status == core.STATUS_UPDATE
+
+
+def test_side_warnings_for_client_and_server_profiles(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    client = fake_modrinth()
+    client._projects["sodium"].update(client_side="required", server_side="unsupported")
+    client._projects["lithium"].update(client_side="unsupported", server_side="required")
+    as_server = core.scan_mods(client, str(mods_dir), "26.3", "fabric", False, NO_PROGRESS, server=True)
+    as_client = core.scan_mods(client, str(mods_dir), "26.3", "fabric", False, NO_PROGRESS, server=False)
+    warnings = lambda r: {m.display_name: m.side_warning for m in r.mods if m.side_warning}  # noqa: E731
+    assert warnings(as_server) == {"Sodium": core.SIDE_CLIENT_ONLY}
+    assert warnings(as_client) == {"Lithium": core.SIDE_SERVER_ONLY}
+
+
+def test_changelog_lists_versions_between_installed_and_available():
+    client = FakeClient({}, {})
+    installed = version("V1", ["26.3"], ["fabric"], "2026-01-01", project="p", number="1.0")
+    middle = version("V2", ["26.3"], ["fabric"], "2026-02-01", project="p", number="1.1")
+    newest = version("V3", ["26.3"], ["fabric"], "2026-03-01", project="p", number="1.2")
+    future = version("V4", ["26.3"], ["fabric"], "2026-04-01", project="p", number="1.3")
+    for v, text in ((middle, "fix A"), (newest, "fix B"), (future, "beta stuff")):
+        v["changelog"] = text
+    client.all_versions = [installed, middle, newest, future]
+    mod = core.ModInfo(path="x.jar", current=installed, latest=newest)
+    entries = core.changelog_entries(client, mod, "26.3", ["fabric"])
+    assert [(e["version"], e["changelog"]) for e in entries] == [("1.2", "fix B"), ("1.1", "fix A")]
+
+
+def test_resource_packs_use_zip_files_and_fixed_loader(tmp_path):
+    packs = tmp_path / "resourcepacks"
+    packs.mkdir()
+    (packs / "faithful.zip").write_bytes(b"faithful-old")
+    (packs / "some-mod.jar").write_bytes(b"not a resource pack")
+    pack_old = version("R1", ["1.21.4"], ["minecraft"], "2025-01-01", project="faithful")
+    pack_new = version("R2", ["26.3"], ["minecraft"], "2026-09-01", project="faithful",
+                       files=[file_entry("faithful-26.3.zip", b"faithful-new")])
+    client = FakeClient({sha(b"faithful-old"): pack_old}, {sha(b"faithful-old"): pack_new},
+                        {"faithful": {"title": "Faithful"}})
+    result = core.scan_mods(client, str(packs), core.AUTO, core.AUTO, False, NO_PROGRESS, content="resourcepacks")
+    assert [m.filename for m in result.mods] == ["faithful.zip"]
+    assert result.game_version == "1.21.4" and result.loaders == ["minecraft"]
+    assert client.latest_calls[0][0] == ("minecraft",)
+
+
+def test_unchanged_files_are_not_hashed_again(tmp_path, monkeypatch):
+    mods_dir = make_mods_folder(tmp_path)
+    core.scan_mods(fake_modrinth(), str(mods_dir), "26.3", "fabric", False, NO_PROGRESS)
+    calls = []
+    real = core.calculate_hash
+    monkeypatch.setattr(core, "calculate_hash", lambda p: calls.append(p) or real(p))
+    core.scan_mods(fake_modrinth(), str(mods_dir), "26.3", "fabric", False, NO_PROGRESS)
+    assert calls == []  # every hash came from the cache
+    (mods_dir / "sodium-old.jar").write_bytes(b"changed content, different size")
+    core.scan_mods(fake_modrinth(), str(mods_dir), "26.3", "fabric", False, NO_PROGRESS)
+    assert [os.path.basename(c) for c in calls] == ["sodium-old.jar"]
+
+
+def test_profiles_get_new_defaults(fresh_config):
+    os.makedirs(core.CONFIG_DIR, exist_ok=True)
+    with open(core.CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"profiles": [{"name": "client", "path": "a"}, {"name": "ScriptKiddies server", "path": "b"}],
+                   "current_profile": "client"}, f)
+    profiles = core.load_config()["profiles"]
+    assert [p["content"] for p in profiles] == ["mods", "mods"]
+    assert [p["server"] for p in profiles] == [False, True]
+    assert [p["ignored"] for p in profiles] == [[], []]
