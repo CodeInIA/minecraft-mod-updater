@@ -131,6 +131,7 @@ jobs:
             # Older Ubuntu = older glibc, so the binary runs on more distros.
             os: ubuntu-22.04
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     env:
       APP_VERSION: ${{ needs.version.outputs.version }}
     steps:
@@ -159,19 +160,28 @@ jobs:
       # the logo and that the window can be created.
       - name: Self-test packaged app (Windows)
         if: runner.os == 'Windows'
+        timeout-minutes: 5
         shell: pwsh
         run: |
+          function Run-And-Wait($file, $arguments) {
+            $p = Start-Process $file -ArgumentList $arguments -PassThru
+            $null = $p.Handle  # keep the handle so ExitCode is available after exit
+            $p.WaitForExit()
+            return $p.ExitCode
+          }
           $env:MMU_SELF_TEST_OUTPUT = "$env:RUNNER_TEMP\self-test.txt"
-          $p = Start-Process dist\mod_updater\mod_updater.exe -ArgumentList "--self-test" -Wait -PassThru
+          $code = Run-And-Wait "dist\mod_updater\mod_updater.exe" "--self-test"
           Get-Content $env:MMU_SELF_TEST_OUTPUT
-          if ($p.ExitCode -ne 0) { exit 1 }
+          if ($code -ne 0) { exit 1 }
 
       - name: Self-test packaged app (macOS)
         if: runner.os == 'macOS'
+        timeout-minutes: 5
         run: '"dist/Minecraft Mod Updater.app/Contents/MacOS/mod_updater" --self-test'
 
       - name: Self-test packaged app (Linux)
         if: runner.os == 'Linux'
+        timeout-minutes: 5
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null
           xvfb-run -a dist/mod_updater/mod_updater --self-test
@@ -192,19 +202,25 @@ jobs:
 
       - name: Test Windows installer
         if: runner.os == 'Windows'
+        timeout-minutes: 5
         shell: pwsh
         run: |
+          function Run-And-Wait($file, $arguments) {
+            $p = Start-Process $file -ArgumentList $arguments -PassThru
+            $null = $p.Handle  # keep the handle so ExitCode is available after exit
+            $p.WaitForExit()
+            return $p.ExitCode
+          }
           $dir = "$env:RUNNER_TEMP\mmu-install"
-          $setup = Start-Process release\MinecraftModUpdater_Setup.exe -Wait -PassThru `
-            -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$dir`""
-          if ($setup.ExitCode -ne 0) { Write-Error "Installer failed: $($setup.ExitCode)"; exit 1 }
+          $code = Run-And-Wait "release\MinecraftModUpdater_Setup.exe" @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$dir`"")
+          if ($code -ne 0) { Write-Error "Installer failed: $code"; exit 1 }
           Start-Sleep 3
-          Get-Process mod_updater -ErrorAction SilentlyContinue | Stop-Process -Force  # app opened by the installer
+          Get-Process mod_updater -ErrorAction SilentlyContinue | Stop-Process -Force  # app reopened by the silent install
           $env:MMU_SELF_TEST_OUTPUT = "$env:RUNNER_TEMP\installed-self-test.txt"
-          $p = Start-Process "$dir\mod_updater.exe" -ArgumentList "--self-test" -Wait -PassThru
+          $code = Run-And-Wait "$dir\mod_updater.exe" "--self-test"
           Get-Content $env:MMU_SELF_TEST_OUTPUT
-          if ($p.ExitCode -ne 0) { exit 1 }
-          Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
+          if ($code -ne 0) { exit 1 }
+          $null = Run-And-Wait "$dir\unins000.exe" @("/VERYSILENT", "/SUPPRESSMSGBOXES")
 
       - name: Package macOS disk image
         if: runner.os == 'macOS'
@@ -216,6 +232,7 @@ jobs:
 
       - name: Test macOS disk image
         if: runner.os == 'macOS'
+        timeout-minutes: 5
         run: |
           mnt=$(mktemp -d)
           hdiutil attach -nobrowse -readonly -mountpoint "$mnt" release/MinecraftModUpdater_macOS.dmg
@@ -233,6 +250,7 @@ jobs:
 
       - name: Test Linux archive and install.sh
         if: runner.os == 'Linux'
+        timeout-minutes: 5
         run: |
           test_home="$RUNNER_TEMP/test-home"
           mkdir -p "$test_home" "$RUNNER_TEMP/extract"
