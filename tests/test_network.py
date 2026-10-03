@@ -10,6 +10,25 @@ import updater_core as core
 pytestmark = pytest.mark.network
 
 
+@pytest.fixture(autouse=True)
+def skip_when_modrinth_is_down(monkeypatch):
+    """Modrinth being down (timeouts, 5xx) is not a bug of the app: skip instead of failing.
+
+    Any other error, such as a 4xx or a changed API, still fails the test.
+    """
+    for name in ("_request", "download"):
+        original = getattr(core.ModrinthClient, name)
+
+        def call(self, *args, _original=original, **kwargs):
+            try:
+                return _original(self, *args, **kwargs)
+            except core.ModrinthError as e:
+                if e.temporary:
+                    pytest.skip(f"Modrinth is not available right now: {e}")
+                raise
+        monkeypatch.setattr(core.ModrinthClient, name, call)
+
+
 @pytest.fixture(scope="module")
 def client():
     return core.ModrinthClient()

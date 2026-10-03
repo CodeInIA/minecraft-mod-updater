@@ -426,7 +426,7 @@ class SearchDialog(Dialog):
             self.app.run_task(lambda: self.app.icons.download(missing), lambda _r: self._refresh_icons(),
                               lambda _e: None)
 
-    def _icon_image(self, url: str) -> Optional[ctk.CTkImage]:
+    def _project_icon(self, url: str) -> Optional[ctk.CTkImage]:
         image = self.app.icons.get(url)
         if image is None:
             return None
@@ -438,7 +438,7 @@ class SearchDialog(Dialog):
         if not self.winfo_exists():
             return
         for row in self.rows.values():
-            icon = self._icon_image(row["hit"].get("icon_url") or "")
+            icon = self._project_icon(row["hit"].get("icon_url") or "")
             if icon is not None:
                 row["icon"].configure(image=icon, text="", fg_color="transparent")
 
@@ -446,7 +446,7 @@ class SearchDialog(Dialog):
         project_id = hit.get("project_id", "")
         row = ctk.CTkFrame(self.list, fg_color="transparent")
         row.pack(fill="x", padx=6, pady=6)
-        icon = self._icon_image(hit.get("icon_url") or "")
+        icon = self._project_icon(hit.get("icon_url") or "")
         icon_label = ctk.CTkLabel(row, text="" if icon else "▢", image=icon, width=self.ROW_ICON,
                                   height=self.ROW_ICON, fg_color="transparent" if icon else ("gray80", "gray25"),
                                   corner_radius=8)

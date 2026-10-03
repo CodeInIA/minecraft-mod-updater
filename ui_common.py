@@ -96,6 +96,9 @@ def resource_path(name: str) -> str:
     return os.path.join(base, name)
 
 
+_WINDOW_ICONS: List[tk.PhotoImage] = []
+
+
 def set_window_icon(window: Union[tk.Tk, tk.Toplevel]) -> None:
     try:
         if sys.platform == "win32":
@@ -107,8 +110,9 @@ def set_window_icon(window: Union[tk.Tk, tk.Toplevel]) -> None:
         elif sys.platform != "darwin":  # macOS takes the icon from the .app bundle
             png = resource_path("updater-logo.png")
             if os.path.exists(png):
-                window._icon_image = tk.PhotoImage(file=png)
-                window.iconphoto(True, window._icon_image)
+                photo = tk.PhotoImage(file=png)
+                _WINDOW_ICONS.append(photo)  # Tk drops images nothing in Python refers to
+                window.iconphoto(True, photo)
     except tk.TclError:
         pass
 

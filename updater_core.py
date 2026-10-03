@@ -210,7 +210,10 @@ def reset_config() -> Dict:
 # --------------------------------------------------------------------------- #
 
 class ModrinthError(Exception):
-    pass
+    def __init__(self, message: str, temporary: bool = False):
+        super().__init__(message)
+        # True for problems on Modrinth's side or of the connection (worth trying again later)
+        self.temporary = temporary
 
 
 def setup_logging() -> None:
@@ -254,7 +257,7 @@ class ModrinthClient:
                     self.sleep(retry_wait(attempt))
                     continue
                 log.error("%s %s failed: %s", method, path, e)
-                raise ModrinthError(t("err_connect", error=e)) from e
+                raise ModrinthError(t("err_connect", error=e), temporary=True) from e
             if response.status_code in RETRY_STATUSES and attempt < RETRIES:
                 wait = retry_wait(attempt, response)
                 log.warning("%s %s answered %s, retrying in %.0f s", method, path, response.status_code, wait)
@@ -263,10 +266,16 @@ class ModrinthClient:
             break
         if response.status_code == 429:
             log.error("%s %s: rate limited", method, path)
-            raise ModrinthError(t("err_rate_limit"))
+            raise ModrinthError(t("err_rate_limit"), temporary=True)
         if response.status_code >= 400:
             log.error("%s %s answered %s: %s", method, path, response.status_code, response.text[:200])
-            raise ModrinthError(t("err_http", code=response.status_code, text=response.text[:200]))
+            if response.status_code == 403 and "Request blocked" in response.text:
+                # Modrinth's firewall (Cloudflare) blocked this connection for a while
+                raise ModrinthError(t("err_blocked"), temporary=True)
+            # Error pages are HTML: show only the status, not the page's markup
+            text = "" if response.text.lstrip().startswith("<") else response.text[:200]
+            raise ModrinthError(t("err_http", code=response.status_code, text=text),
+                                temporary=response.status_code in RETRY_STATUSES)
         return response.json()
 
     @staticmethod
@@ -351,7 +360,8 @@ class ModrinthClient:
                     self.sleep(retry_wait(attempt))
                     continue
                 log.error("download of %s failed: %s", url, e)
-                raise ModrinthError(t("err_download", error=e)) from e
+                raise ModrinthError(t("err_download", error=e),
+                                    temporary=status is None or status in RETRY_STATUSES) from e
             if expected_sha512 and h.hexdigest() != expected_sha512:
                 _silent_remove(destination)
                 if not last:

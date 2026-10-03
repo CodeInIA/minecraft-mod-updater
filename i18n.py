@@ -284,6 +284,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "server only",
         "compare_no_others": "There are no other profiles of the same kind to compare with.",
         "compare_identical": "Both profiles have the same files.",
+        "err_blocked": "Modrinth's firewall blocked the requests from this connection (it happens after very many requests, or with some VPNs and proxies). Wait a while and try again.",
     },
     "es": {
         "app_subtitle": "para Minecraft",
@@ -537,6 +538,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "solo servidor",
         "compare_no_others": "No hay otros perfiles del mismo tipo con los que comparar.",
         "compare_identical": "Los dos perfiles tienen los mismos archivos.",
+        "err_blocked": "El cortafuegos de Modrinth ha bloqueado las peticiones de esta conexión (pasa tras muchísimas peticiones o con algunas VPN y proxies). Espera un rato y vuelve a intentarlo.",
     },
     "pt": {
         "app_subtitle": "para Minecraft",
@@ -790,6 +792,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "só servidor",
         "compare_no_others": "Não há outros perfis do mesmo tipo para comparar.",
         "compare_identical": "Os dois perfis têm os mesmos arquivos.",
+        "err_blocked": "O firewall do Modrinth bloqueou os pedidos desta conexão (acontece após muitíssimos pedidos ou com algumas VPN e proxies). Aguarde um pouco e tente de novo.",
     },
     "fr": {
         "app_subtitle": "pour Minecraft",
@@ -1043,6 +1046,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "serveur uniquement",
         "compare_no_others": "Il n'y a aucun autre profil du même type à comparer.",
         "compare_identical": "Les deux profils ont les mêmes fichiers.",
+        "err_blocked": "Le pare-feu de Modrinth a bloqué les requêtes de cette connexion (cela arrive après de très nombreuses requêtes ou avec certains VPN et proxys). Patientez un moment puis réessayez.",
     },
     "de": {
         "app_subtitle": "für Minecraft",
@@ -1296,6 +1300,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "nur Server",
         "compare_no_others": "Es gibt keine anderen Profile derselben Art zum Vergleichen.",
         "compare_identical": "Beide Profile haben dieselben Dateien.",
+        "err_blocked": "Die Firewall von Modrinth hat die Anfragen dieser Verbindung blockiert (das passiert nach sehr vielen Anfragen oder mit manchen VPNs und Proxys). Warte eine Weile und versuche es erneut.",
     },
     "it": {
         "app_subtitle": "per Minecraft",
@@ -1549,6 +1554,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "solo server",
         "compare_no_others": "Non ci sono altri profili dello stesso tipo da confrontare.",
         "compare_identical": "I due profili hanno gli stessi file.",
+        "err_blocked": "Il firewall di Modrinth ha bloccato le richieste di questa connessione (succede dopo moltissime richieste o con alcune VPN e proxy). Attendi un po' e riprova.",
     },
     "nl": {
         "app_subtitle": "voor Minecraft",
@@ -1802,6 +1808,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "alleen server",
         "compare_no_others": "Er zijn geen andere profielen van hetzelfde soort om mee te vergelijken.",
         "compare_identical": "Beide profielen hebben dezelfde bestanden.",
+        "err_blocked": "De firewall van Modrinth heeft de verzoeken van deze verbinding geblokkeerd (dat gebeurt na heel veel verzoeken of met sommige VPN's en proxy's). Wacht even en probeer het opnieuw.",
     },
     "pl": {
         "app_subtitle": "dla Minecrafta",
@@ -2055,6 +2062,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "tylko serwer",
         "compare_no_others": "Brak innych profili tego samego rodzaju do porównania.",
         "compare_identical": "Oba profile mają te same pliki.",
+        "err_blocked": "Zapora Modrinth zablokowała żądania z tego połączenia (zdarza się to po bardzo wielu żądaniach lub przy niektórych VPN i proxy). Odczekaj chwilę i spróbuj ponownie.",
     },
     "ru": {
         "app_subtitle": "для Minecraft",
@@ -2308,6 +2316,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "только сервер",
         "compare_no_others": "Нет других профилей того же типа для сравнения.",
         "compare_identical": "В обоих профилях одинаковые файлы.",
+        "err_blocked": "Брандмауэр Modrinth заблокировал запросы с этого подключения (так бывает после очень большого числа запросов или с некоторыми VPN и прокси). Подождите немного и попробуйте снова.",
     },
     "uk": {
         "app_subtitle": "для Minecraft",
@@ -2561,6 +2570,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "лише сервер",
         "compare_no_others": "Немає інших профілів того самого типу для порівняння.",
         "compare_identical": "В обох профілях однакові файли.",
+        "err_blocked": "Брандмауер Modrinth заблокував запити з цього підключення (так буває після дуже великої кількості запитів або з деякими VPN і проксі). Зачекайте трохи й спробуйте знову.",
     },
     "tr": {
         "app_subtitle": "Minecraft için",
@@ -2814,6 +2824,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "yalnızca sunucu",
         "compare_no_others": "Karşılaştırılacak aynı türde başka profil yok.",
         "compare_identical": "İki profil de aynı dosyalara sahip.",
+        "err_blocked": "Modrinth'in güvenlik duvarı bu bağlantıdan gelen istekleri engelledi (çok fazla istekten sonra ya da bazı VPN ve proxy'lerle olur). Biraz bekleyip yeniden deneyin.",
     },
     "ja": {
         "app_subtitle": "Minecraft 用",
@@ -3067,6 +3078,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "サーバーのみ",
         "compare_no_others": "比較できる同じ種類のプロファイルがありません。",
         "compare_identical": "両方のプロファイルのファイルは同じです。",
+        "err_blocked": "Modrinth のファイアウォールがこの接続からのリクエストをブロックしました（非常に多くのリクエストの後や、一部の VPN・プロキシで発生します）。しばらく待ってから再試行してください。",
     },
     "ko": {
         "app_subtitle": "Minecraft용",
@@ -3320,6 +3332,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "서버 전용",
         "compare_no_others": "비교할 같은 종류의 다른 프로필이 없습니다.",
         "compare_identical": "두 프로필의 파일이 같습니다.",
+        "err_blocked": "Modrinth 방화벽이 이 연결의 요청을 차단했습니다(요청이 매우 많거나 일부 VPN·프록시를 사용할 때 발생합니다). 잠시 후 다시 시도하세요.",
     },
     "zh": {
         "app_subtitle": "适用于 Minecraft",
@@ -3573,6 +3586,7 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "compare_server_only": "仅服务器",
         "compare_no_others": "没有可比较的同类配置。",
         "compare_identical": "两个配置的文件相同。",
+        "err_blocked": "Modrinth 的防火墙拦截了来自此连接的请求（请求过多或使用某些 VPN、代理时会发生）。请稍候再试。",
     },
 }
 

@@ -127,3 +127,18 @@ def test_detects_minecraft_running_with_the_folder(tmp_path, monkeypatch):
 
 def test_process_listing_works():
     assert isinstance(list(core._java_processes()), list)  # no errors on this system
+
+
+def test_firewall_blocks_and_error_pages_are_reported_clearly():
+    blocked = FakeResponse(403, data=None)
+    blocked.text = "<!doctype html><title>Request blocked · Modrinth</title>"
+    client, _waits, _ = client_with([blocked])
+    with pytest.raises(core.ModrinthError) as error:
+        client.game_versions()
+    assert error.value.temporary and "<" not in str(error.value)
+    page = FakeResponse(404, data=None)
+    page.text = "<!doctype html><html>Not found</html>"
+    client, _waits, _ = client_with([page])
+    with pytest.raises(core.ModrinthError) as error:
+        client.game_versions()
+    assert not error.value.temporary and "<" not in str(error.value) and "404" in str(error.value)

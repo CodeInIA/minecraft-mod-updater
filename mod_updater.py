@@ -117,6 +117,7 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
         threading.Thread(target=target, daemon=True).start()
 
     def _poll_queue(self):
+        """Run the results of background work on the Tk thread. Keeps going whatever a callback does."""
         try:
             while True:
                 fn, arg = self._queue.get_nowait()
@@ -124,9 +125,12 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
                     fn(arg)
                 except tk.TclError:
                     pass  # the window a result was meant for has been closed
+                except Exception:  # noqa: BLE001 - one broken callback must not stop all the others
+                    self.report_callback_exception(*sys.exc_info())
         except queue.Empty:
             pass
-        self.after(50, self._poll_queue)
+        finally:
+            self.after(50, self._poll_queue)
 
     def _progress_cb(self, fraction: float, message: str):
         self._queue.put((self._set_progress, (fraction, message)))
