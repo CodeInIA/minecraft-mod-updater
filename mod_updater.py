@@ -42,7 +42,7 @@ TREE_ITEM_PADDING = 10  # left padding of rows in the mod table (see _style_tree
 # Display order of statuses in the table
 STATUS_ORDER = [core.STATUS_MISSING_DEP, core.STATUS_UPDATE, core.STATUS_UP_TO_DATE, core.STATUS_IGNORED,
                 core.STATUS_NOT_FOUND, core.STATUS_NO_COMPATIBLE, core.STATUS_INSTALLED, core.STATUS_UPDATED,
-                core.STATUS_FAILED]
+                core.STATUS_FAILED, core.STATUS_UNCHECKED]
 # (light, dark) foreground per status
 STATUS_COLORS = {
     core.STATUS_UPDATE: ("#B26A00", "#F0B44C"),
@@ -54,6 +54,7 @@ STATUS_COLORS = {
     core.STATUS_MISSING_DEP: ("#6D28D9", "#B79CFF"),
     core.STATUS_INSTALLED: ("#1F8A4C", "#7BE0A3"),
     core.STATUS_IGNORED: ("#7A8088", "#8A9099"),
+    core.STATUS_UNCHECKED: ("#5F6670", "#B4BAC1"),
 }
 CONTENT_ORDER = ["mods", "resourcepacks", "shaderpacks", "datapacks"]
 
@@ -416,12 +417,10 @@ class BackupsDialog(Dialog):
                 t("backups_title"), t("restore_confirm", date=when, n=len(backup.entries)), parent=self):
             return
         errors = core.restore_backup(backup)
-        self.app._clear_results()
+        self.app.show_local_mods(status=None if errors else t("restore_done", n=len(backup.entries)))
         if errors:
             messagebox.showwarning(t("backups_title"), t("restore_failed", details="\n".join(errors[:15])),
                                    parent=self)
-        else:
-            self.app.status_label.configure(text=t("restore_done", n=len(backup.entries)))
         self._fill()
 
     def _delete(self, backup: core.Backup, when: str):
@@ -638,6 +637,7 @@ class App(ctk.CTk):
         self.mods: List[core.ModInfo] = []
         self.last_scan: Optional[core.ScanResult] = None
         self.app_release: Optional[app_updater.Release] = None
+        self._list_token = 0  # identifies the latest request to list a profile's files
         self.icons = IconCache()
         self.banner_dismissed = False
         self.updating_app = False
@@ -655,6 +655,7 @@ class App(ctk.CTk):
         self._build_ui()
 
         self.after(50, self._poll_queue)
+        self.show_local_mods()
         if not offline:
             self.run_task(lambda: core.fetch_tags(self.client), self._on_tags, lambda _e: None)
             self.run_task(app_updater.check_for_update, self._on_app_update_found, lambda _e: None)
@@ -729,6 +730,8 @@ class App(ctk.CTk):
             self._update_summary()
             if self.last_scan:
                 self._show_scan_status(self.last_scan)
+        else:
+            self.show_local_mods()
         if self.app_release and not self.banner_dismissed:
             self._show_update_banner()
 
@@ -1180,8 +1183,8 @@ class App(ctk.CTk):
             return
         self.config_data["current_profile"] = name
         core.save_config(self.config_data)
-        self._clear_results()
         self.refresh_profiles()
+        self.show_local_mods()
 
     def add_profile(self):
         dialog = ProfileDialog(self)
@@ -1190,8 +1193,8 @@ class App(ctk.CTk):
             self.config_data["profiles"].append(dialog.result)
             self.config_data["current_profile"] = dialog.result["name"]
             core.save_config(self.config_data)
-            self._clear_results()
             self.refresh_profiles()
+            self.show_local_mods()
 
     def edit_profile(self):
         profile = self.current_profile()
@@ -1203,8 +1206,8 @@ class App(ctk.CTk):
             profile.update(dialog.result)
             self.config_data["current_profile"] = profile["name"]
             core.save_config(self.config_data)
-            self._clear_results()
             self.refresh_profiles()
+            self.show_local_mods()
 
     def import_profiles(self):
         dialog = ImportDialog(self)
@@ -1231,9 +1234,8 @@ class App(ctk.CTk):
         if added:
             self.config_data["current_profile"] = self.config_data["profiles"][-1]["name"]
             core.save_config(self.config_data)
-            self._clear_results()
             self.refresh_profiles()
-            self.status_label.configure(text=t("import_done", n=added))
+            self.show_local_mods(status=t("import_done", n=added))
 
     def show_backups(self):
         if self.current_profile() and not self.busy:
@@ -1250,8 +1252,8 @@ class App(ctk.CTk):
         self.config_data["current_profile"] = (self.config_data["profiles"][0]["name"]
                                                if self.config_data["profiles"] else "")
         core.save_config(self.config_data)
-        self._clear_results()
         self.refresh_profiles()
+        self.show_local_mods()
 
     def reset_all(self):
         self.config_data = core.reset_config()
@@ -1348,9 +1350,8 @@ class App(ctk.CTk):
             profile["game_version"] = new_version
             profile["loader"] = new_loader
             core.save_config(self.config_data)
-            if self.mods:
-                self._clear_results()
-                self.summary_label.configure(text=t("target_changed"))
+            if self.last_scan:
+                self.show_local_mods(status=t("target_changed"))
 
     # ----- checking & updating -------------------------------------------- #
 
@@ -1370,6 +1371,7 @@ class App(ctk.CTk):
                 return
 
         self._clear_results()
+        self._list_token += 1  # a listing still in progress must not replace the scan results
         self._set_busy(True)
         allow_beta = self.config_data["allow_beta"]
         content = profile.get("content", core.CONTENT_MODS)
@@ -1445,6 +1447,44 @@ class App(ctk.CTk):
                 core.APP_NAME, t("updated_backup_prompt", n=ok, path=backup_dir), parent=self):
             open_folder(backup_dir)
 
+    # ----- files of the profile before checking ------------------------------ #
+
+    def show_local_mods(self, status: Optional[str] = None):
+        """List the files of the current profile right away, without going online.
+
+        Names, icons and versions come from earlier checks; the status says they
+        have not been checked yet. "Check for updates" replaces this list.
+        """
+        self._clear_results()
+        self._list_token += 1
+        token = self._list_token
+        profile = self.current_profile()
+        if not profile:
+            return
+        path, content = profile["path"], profile.get("content", core.CONTENT_MODS)
+        if not os.path.isdir(path):
+            self.status_label.configure(text=t("folder_missing", path=path).replace("\n", " "))
+            return
+        self.run_task(lambda: core.list_local_mods(path, content),
+                      lambda mods: self._on_local_mods(token, mods, content, status), lambda _e: None)
+
+    def _on_local_mods(self, token: int, mods: List[core.ModInfo], content: str, status: Optional[str]):
+        if token != self._list_token or self.busy or self.last_scan:
+            return  # another profile was selected, or a check started meanwhile
+        self.mods = mods
+        self._fill_tree()
+        self._update_summary()
+        if status:
+            self.status_label.configure(text=status)
+        elif mods:
+            self.status_label.configure(text=t("local_listed", n=len(mods)))
+        else:
+            self.status_label.configure(text=t("no_jars") if content == core.CONTENT_MODS else t("no_files"))
+        missing = self.icons.missing(m.icon_url for m in mods)
+        if missing:
+            self.run_task(lambda: self.icons.download(missing), lambda _r: self._refresh_row_images(),
+                          lambda _e: None)
+
     # ----- table ----------------------------------------------------------- #
 
     def _clear_results(self):
@@ -1499,6 +1539,9 @@ class App(ctk.CTk):
         counts = {s: 0 for s in STATUS_ORDER}
         for m in self.mods:
             counts[m.status] = counts.get(m.status, 0) + 1
+        if self.mods and all(m.status == core.STATUS_UNCHECKED for m in self.mods):
+            self.summary_label.configure(text=t("sum_mods", n=len(self.mods)) + "  ·  " + t("press_check"))
+            return
         parts = [t("sum_mods", n=len([m for m in self.mods if m.status != core.STATUS_MISSING_DEP]))]
         if counts[core.STATUS_MISSING_DEP]:
             parts.append(t("sum_missing", n=counts[core.STATUS_MISSING_DEP]))
@@ -1579,7 +1622,7 @@ class App(ctk.CTk):
             menu.add_command(label=t("menu_changelog"), command=lambda: self.show_changelog(mod))
         if mod.page_url:
             menu.add_command(label=t("open_in_modrinth"), command=lambda: webbrowser.open(mod.page_url))
-        if mod.current and mod.project_id and not self.busy:
+        if mod.current and mod.project_id and not self.busy and self.last_scan:
             ignored = mod.status == core.STATUS_IGNORED
             menu.add_command(label=t("menu_unignore") if ignored else t("menu_ignore"),
                              command=lambda: self.set_ignored(mod, not ignored))

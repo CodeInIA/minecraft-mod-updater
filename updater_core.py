@@ -52,6 +52,9 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "mod_updater_config.json")
 CACHE_FILE = os.path.join(CONFIG_DIR, "modrinth_tags_cache.json")
 # SHA-512 of every scanned file with its size and modification time, so unchanged files are not hashed again
 HASH_CACHE_FILE = os.path.join(CONFIG_DIR, "hash_cache.json")
+# What the last scans learned about each file (by hash): name, icon, page and installed version,
+# so a profile's files can be listed with their names before checking for updates
+MOD_INFO_CACHE_FILE = os.path.join(CONFIG_DIR, "mod_info_cache.json")
 DEFAULT_MINECRAFT_MODS = os.path.join(MINECRAFT_DIR, "mods")
 
 MODRINTH_API_URL = "https://api.modrinth.com/v2"
@@ -323,6 +326,7 @@ STATUS_FAILED = "failed"
 STATUS_MISSING_DEP = "missing_dependency"  # required by another mod but not installed
 STATUS_INSTALLED = "installed"             # a missing dependency that was just installed
 STATUS_IGNORED = "ignored"                 # the user chose not to update this mod
+STATUS_UNCHECKED = "unchecked"             # listed from the folder, not checked on Modrinth yet
 
 # Statuses whose rows can be ticked and updated/installed
 ACTIONABLE_STATUSES = (STATUS_UPDATE, STATUS_MISSING_DEP)
@@ -461,6 +465,63 @@ def _load_hash_cache() -> Dict[str, Dict]:
         return cache if isinstance(cache, dict) else {}
     except (OSError, ValueError):
         return {}
+
+
+def _load_json(path: str) -> Dict:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_json(path: str, data: Dict) -> None:
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def _remember_mod_info(mods: Iterable[ModInfo]) -> None:
+    """Keep what a scan learned about each file for list_local_mods()."""
+    cache = _load_json(MOD_INFO_CACHE_FILE)
+    changed = False
+    for mod in mods:
+        if mod.sha512 and mod.current:
+            info = {"title": mod.title, "icon_url": mod.icon_url, "page_url": mod.page_url,
+                    "version_number": mod.current.get("version_number", ""),
+                    "project_id": mod.current.get("project_id", "")}
+            if cache.get(mod.sha512) != info:
+                cache[mod.sha512] = info
+                changed = True
+    if changed:
+        _save_json(MOD_INFO_CACHE_FILE, cache)
+
+
+def list_local_mods(mod_folder: str, content: str = CONTENT_MODS) -> List[ModInfo]:
+    """The files of a profile folder, without going online.
+
+    Names, icons and installed versions come from earlier scans when the file
+    was seen before; everything is marked as not checked yet.
+    """
+    spec = CONTENT_TYPES.get(content, CONTENT_TYPES[CONTENT_MODS])
+    mods, _by_hash = _hash_folder(mod_folder, lambda _f, _m: None, spec["extensions"])
+    cache = _load_json(MOD_INFO_CACHE_FILE)
+    for mod in mods:
+        mod.status = STATUS_UNCHECKED
+        info = cache.get(mod.sha512)
+        if info:
+            mod.title = info.get("title", "")
+            mod.icon_url = info.get("icon_url", "")
+            mod.page_url = info.get("page_url", "")
+            mod.current = {"version_number": info.get("version_number", "?"),
+                           "project_id": info.get("project_id", "")}
+    return sorted(mods, key=lambda m: m.display_name.lower())
 
 
 def _save_hash_cache(cache: Dict[str, Dict]) -> None:
@@ -613,6 +674,7 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
         except ModrinthError:
             pass  # dependencies are a bonus; the scan itself succeeded
 
+    _remember_mod_info(by_hash.values())
     progress(1.0, t("ready"))
     first = (STATUS_MISSING_DEP, STATUS_UPDATE)
     mods.sort(key=lambda m: (m.status not in first, m.status != STATUS_MISSING_DEP, m.display_name.lower()))
@@ -738,10 +800,14 @@ def update_mods(client: ModrinthClient, mods: List[ModInfo], mod_folder: str, ba
             mod.path = final_path
             mod.duplicates = []
             mod.current = mod.latest
+            mod.sha512 = file_info.get("hashes", {}).get("sha512", "")
             mod.status = STATUS_INSTALLED if is_new else STATUS_UPDATED
         except (ModrinthError, OSError) as e:
             _silent_remove(part_path)
             mod.status, mod.error = STATUS_FAILED, str(e)
+
+    # So the new files show their names when the profile is listed again
+    _remember_mod_info(m for m in mods if m.status in (STATUS_UPDATED, STATUS_INSTALLED))
 
     if backup_dir:
         if entries:

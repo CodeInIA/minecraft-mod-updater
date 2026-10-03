@@ -104,3 +104,22 @@ def test_resource_pack_profile_has_no_loader(app):
     profile["content"] = core.CONTENT_MODS
     app.refresh_profiles()
     assert app.loader_menu.cget("state") == "normal"
+
+
+def test_selecting_a_profile_lists_its_files(app, tmp_path):
+    import time
+    folder = tmp_path / "pack-mods"
+    folder.mkdir()
+    for name in ("a.jar", "b.jar.disabled", "readme.txt"):
+        (folder / name).write_bytes(name.encode())
+    app.config_data["profiles"].append({"name": "listing", "path": str(folder), "game_version": core.AUTO,
+                                       "loader": core.AUTO, "color": core.PROFILE_COLORS[3],
+                                       "content": core.CONTENT_MODS, "server": False, "ignored": []})
+    app.select_profile("listing")
+    end = time.time() + 5
+    while time.time() < end and len(app.tree.get_children()) < 2:
+        app.update()
+        time.sleep(0.02)
+    rows = [app.tree.item(i, "text").strip() for i in app.tree.get_children()]
+    assert rows == ["a.jar", "b.jar.disabled  " + __import__("i18n").t("disabled_suffix")]
+    assert not app.checked and app.update_btn.cget("state") == "disabled"  # nothing to update before a check

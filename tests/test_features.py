@@ -154,3 +154,26 @@ def test_profiles_get_new_defaults(fresh_config):
     assert [p["content"] for p in profiles] == ["mods", "mods"]
     assert [p["server"] for p in profiles] == [False, True]
     assert [p["ignored"] for p in profiles] == [[], []]
+
+
+def test_local_listing_before_and_after_a_check(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    before = core.list_local_mods(str(mods_dir))
+    assert [m.filename for m in before] == ["lithium-old.jar.disabled", "local.jar", "sodium-old.jar"]
+    assert {m.status for m in before} == {core.STATUS_UNCHECKED} and not any(m.actionable for m in before)
+
+    core.scan_mods(fake_modrinth(), str(mods_dir), "26.3", "fabric", False, NO_PROGRESS)
+    after = {m.filename: m for m in core.list_local_mods(str(mods_dir))}
+    assert after["sodium-old.jar"].display_name == "Sodium"  # remembered from the check, no network needed
+    assert after["sodium-old.jar"].current_version == "1.0"
+    assert after["local.jar"].display_name == "local.jar"
+    assert {m.status for m in after.values()} == {core.STATUS_UNCHECKED}
+
+
+def test_updated_files_are_listed_with_their_names(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    client = fake_modrinth()
+    result = core.scan_mods(client, str(mods_dir), "26.3", "fabric", False, NO_PROGRESS)
+    core.update_mods(client, [m for m in result.mods if m.actionable], str(mods_dir), False, NO_PROGRESS)
+    listed = {m.filename: m.display_name for m in core.list_local_mods(str(mods_dir))}
+    assert listed["sodium-0.9.jar"] == "Sodium"
