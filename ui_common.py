@@ -117,7 +117,8 @@ def shorten_path(path: str, limit: int = 80) -> str:
 
 
 def open_folder(path: str) -> None:
-    if not os.path.isdir(path):
+    """Open a folder (or a file, with its default app) in the system's file manager."""
+    if not os.path.exists(path):
         return
     if sys.platform == "win32":
         os.startfile(path)

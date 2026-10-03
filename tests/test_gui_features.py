@@ -123,3 +123,31 @@ def test_selecting_a_profile_lists_its_files(app, tmp_path):
     rows = [app.tree.item(i, "text").strip() for i in app.tree.get_children()]
     assert rows == ["a.jar", "b.jar.disabled  " + __import__("i18n").t("disabled_suffix")]
     assert not app.checked and app.update_btn.cget("state") == "disabled"  # nothing to update before a check
+
+
+def test_keyboard_shortcuts(app, tmp_path):
+    from test_gui import fake_scan
+    app._on_scan_done(fake_scan(tmp_path))
+    app.update()
+    assert len(app.checked) == 2
+    app._run_shortcut(type("E", (), {"widget": app.tree})(), app._shortcut_select_all)
+    assert app.checked == set()  # Ctrl+A toggles the selection
+    app._focus_filter()
+    app.search_entry.insert(0, "Mod 1")
+    app._fill_tree()
+    assert len(app.tree.get_children()) == 1
+    app._clear_filter()
+    assert len(app.tree.get_children()) == 5
+    keys = [keys for keys, _text in app.shortcut_list()]
+    assert "F1" in keys and all(text for _keys, text in app.shortcut_list())
+
+
+def test_switching_profiles_with_the_keyboard(app, tmp_path):
+    app.config_data["profiles"] = [{"name": n, "path": str(tmp_path), "game_version": core.AUTO,
+                                    "loader": core.AUTO} for n in ("one", "two")]
+    app.config_data["current_profile"] = "one"
+    app.refresh_profiles()
+    app._switch_profile(1)
+    assert app.config_data["current_profile"] == "two"
+    app._switch_profile(1)
+    assert app.config_data["current_profile"] == "one"  # wraps around

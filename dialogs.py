@@ -377,7 +377,7 @@ class ImportDialog(Dialog):
 
 class SettingsDialog(Dialog):
     def __init__(self, app: "App"):
-        super().__init__(app, t("settings"), 600, 570)
+        super().__init__(app, t("settings"), 600, 620)
         self.app = app
         cfg = app.config_data
 
@@ -424,12 +424,17 @@ class SettingsDialog(Dialog):
         self.check_app_label = ctk.CTkLabel(check_row, text=f"v{core.APP_VERSION}", text_color=MUTED)
         self.check_app_label.pack(side="left", padx=10)
 
+        ghost = dict(fg_color="transparent", border_width=1, text_color=("gray10", "gray90"))
         actions = ctk.CTkFrame(body, fg_color="transparent")
         actions.pack(anchor="w", pady=(22, 0))
-        ctk.CTkButton(actions, text=t("open_config_folder"), fg_color="transparent", border_width=1,
-                      text_color=("gray10", "gray90"),
-                      command=lambda: open_folder(core.CONFIG_DIR)).pack(side="left")
-        ctk.CTkButton(actions, text=t("reset_all"), fg_color=DANGER, hover_color=DANGER_HOVER,
+        ctk.CTkButton(actions, text=t("open_config_folder"), command=lambda: open_folder(core.CONFIG_DIR),
+                      **ghost).pack(side="left")
+        ctk.CTkButton(actions, text=t("open_log"), command=lambda: open_folder(core.LOG_FILE),
+                      **ghost).pack(side="left", padx=8)
+        more = ctk.CTkFrame(body, fg_color="transparent")
+        more.pack(anchor="w", pady=(8, 0))
+        ctk.CTkButton(more, text=t("shortcuts_btn"), command=app.show_shortcuts, **ghost).pack(side="left")
+        ctk.CTkButton(more, text=t("reset_all"), fg_color=DANGER, hover_color=DANGER_HOVER,
                       command=self._reset).pack(side="left", padx=8)
 
         buttons = ctk.CTkFrame(self, fg_color="transparent")

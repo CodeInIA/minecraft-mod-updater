@@ -9,10 +9,13 @@ new year-based ones like 26.3 or 26.4-snapshot-1.
 
 import hashlib
 import json
+import logging
+import logging.handlers
 import os
 import re
 import shutil
 import sys
+import time
 import zipfile
 from collections import Counter
 from dataclasses import dataclass, field
@@ -58,10 +61,17 @@ HASH_CACHE_FILE = os.path.join(CONFIG_DIR, "hash_cache.json")
 # so a profile's files can be listed with their names before checking for updates
 MOD_INFO_CACHE_FILE = os.path.join(CONFIG_DIR, "mod_info_cache.json")
 DEFAULT_MINECRAFT_MODS = os.path.join(MINECRAFT_DIR, "mods")
+# What the app did and what went wrong, to diagnose problems (rotated, at most ~3 MB)
+LOG_FILE = os.path.join(CONFIG_DIR, "mod_updater.log")
+
+log = logging.getLogger("mod_updater")
 
 MODRINTH_API_URL = "https://api.modrinth.com/v2"
 USER_AGENT = f"CodeInIA/minecraft-mod-updater/{APP_VERSION} ({REPO_URL})"
 REQUEST_TIMEOUT = 30
+RETRIES = 3                                  # extra attempts after a failed request
+RETRY_STATUSES = {429, 500, 502, 503, 504}   # rate limited or temporary server problems
+MAX_RETRY_WAIT = 30                          # seconds
 HASH_BATCH_SIZE = 200
 
 # Loaders shown first in the UI; any other loader Modrinth knows comes after.
@@ -199,20 +209,59 @@ class ModrinthError(Exception):
     pass
 
 
+def setup_logging() -> None:
+    """Write the app's log to LOG_FILE (called once by the app, not by the tests)."""
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        handler = logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=2,
+                                                       encoding="utf-8")
+    except OSError:
+        return
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    log.info("%s %s started on %s", APP_NAME, APP_VERSION, sys.platform)
+
+
+def retry_wait(attempt: int, response: Optional[requests.Response] = None) -> float:
+    """Seconds to wait before retrying: what Modrinth asks for when rate limited, otherwise 1, 2, 4..."""
+    if response is not None and response.status_code == 429:
+        try:
+            return min(MAX_RETRY_WAIT, max(1.0, float(response.headers.get("X-Ratelimit-Reset", ""))))
+        except ValueError:
+            pass
+    return min(MAX_RETRY_WAIT, float(2 ** attempt))
+
+
 class ModrinthClient:
     def __init__(self) -> None:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": USER_AGENT})
+        self.sleep: Callable[[float], None] = time.sleep  # replaced by the tests
 
     def _request(self, method: str, path: str, **kwargs):
-        try:
-            response = self.session.request(method, f"{MODRINTH_API_URL}{path}",
-                                            timeout=REQUEST_TIMEOUT, **kwargs)
-        except requests.RequestException as e:
-            raise ModrinthError(t("err_connect", error=e)) from e
+        url = f"{MODRINTH_API_URL}{path}"
+        for attempt in range(RETRIES + 1):
+            try:
+                response = self.session.request(method, url, timeout=REQUEST_TIMEOUT, **kwargs)
+            except requests.RequestException as e:
+                if attempt < RETRIES:
+                    log.warning("%s %s failed (%s), retrying", method, path, e)
+                    self.sleep(retry_wait(attempt))
+                    continue
+                log.error("%s %s failed: %s", method, path, e)
+                raise ModrinthError(t("err_connect", error=e)) from e
+            if response.status_code in RETRY_STATUSES and attempt < RETRIES:
+                wait = retry_wait(attempt, response)
+                log.warning("%s %s answered %s, retrying in %.0f s", method, path, response.status_code, wait)
+                self.sleep(wait)
+                continue
+            break
         if response.status_code == 429:
+            log.error("%s %s: rate limited", method, path)
             raise ModrinthError(t("err_rate_limit"))
         if response.status_code >= 400:
+            log.error("%s %s answered %s: %s", method, path, response.status_code, response.text[:200])
             raise ModrinthError(t("err_http", code=response.status_code, text=response.text[:200]))
         return response.json()
 
@@ -273,20 +322,34 @@ class ModrinthClient:
         return sort_loaders(names)
 
     def download(self, url: str, destination: str, expected_sha512: Optional[str]) -> None:
-        h = hashlib.sha512()
-        try:
-            with self.session.get(url, stream=True, timeout=REQUEST_TIMEOUT) as response:
-                response.raise_for_status()
-                with open(destination, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=65536):
-                        f.write(chunk)
-                        h.update(chunk)
-        except (requests.RequestException, OSError) as e:
-            _silent_remove(destination)
-            raise ModrinthError(t("err_download", error=e)) from e
-        if expected_sha512 and h.hexdigest() != expected_sha512:
-            _silent_remove(destination)
-            raise ModrinthError(t("err_corrupt"))
+        """Download a file, retrying failed or corrupted downloads."""
+        for attempt in range(RETRIES + 1):
+            last = attempt == RETRIES
+            h = hashlib.sha512()
+            try:
+                with self.session.get(url, stream=True, timeout=REQUEST_TIMEOUT) as response:
+                    response.raise_for_status()
+                    with open(destination, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=65536):
+                            f.write(chunk)
+                            h.update(chunk)
+            except (requests.RequestException, OSError) as e:
+                _silent_remove(destination)
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if not last and (status is None or status in RETRY_STATUSES):
+                    log.warning("download of %s failed (%s), retrying", url, e)
+                    self.sleep(retry_wait(attempt))
+                    continue
+                log.error("download of %s failed: %s", url, e)
+                raise ModrinthError(t("err_download", error=e)) from e
+            if expected_sha512 and h.hexdigest() != expected_sha512:
+                _silent_remove(destination)
+                if not last:
+                    log.warning("download of %s is corrupted, retrying", url)
+                    continue
+                log.error("download of %s is corrupted", url)
+                raise ModrinthError(t("err_corrupt"))
+            return
 
 
 def sort_loaders(names: Iterable[str]) -> List[str]:
@@ -880,6 +943,8 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
             pass  # dependencies are a bonus; the scan itself succeeded
 
     _remember_mod_info(by_hash.values())
+    log.info("scanned %s (%s, %s %s): %s", mod_folder, content, result.game_version, result.loader,
+             dict(Counter(m.status for m in mods)))
     progress(1.0, t("ready"))
     first = (STATUS_MISSING_DEP, STATUS_UPDATE)
     mods.sort(key=lambda m: (m.status not in first, m.status != STATUS_MISSING_DEP, m.display_name.lower()))
@@ -1007,9 +1072,12 @@ def update_mods(client: ModrinthClient, mods: List[ModInfo], mod_folder: str, ba
             mod.current = mod.latest
             mod.sha512 = file_info.get("hashes", {}).get("sha512", "")
             mod.status = STATUS_INSTALLED if is_new else STATUS_UPDATED
+            log.info("%s %s: %s -> %s", "installed" if is_new else "updated", mod.display_name,
+                     ", ".join(os.path.basename(o) for o in old_files) or "-", new_name)
         except (ModrinthError, OSError) as e:
             _silent_remove(part_path)
             mod.status, mod.error = STATUS_FAILED, str(e)
+            log.error("could not update %s: %s", mod.display_name, e)
 
     # So the new files show their names when the profile is listed again
     _remember_mod_info(m for m in mods if m.status in (STATUS_UPDATED, STATUS_INSTALLED))

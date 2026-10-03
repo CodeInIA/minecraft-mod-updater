@@ -2,13 +2,14 @@
 
 import os
 import queue
+import re
 import sys
 import threading
 import tkinter as tk
 import webbrowser
 from tkinter import font as tkfont
 from tkinter import messagebox, ttk
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
 
@@ -84,6 +85,7 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
         self._build_ui()
 
+        self._bind_shortcuts()
         self.after(50, self._poll_queue)
         self.show_local_mods()
         if not offline:
@@ -97,6 +99,7 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
             try:
                 result = work()
             except Exception as e:  # noqa: BLE001 - shown to the user
+                core.log.warning("background task failed: %r", e)
                 self._queue.put((on_error or self._show_error, e))
                 return
             self._queue.put((on_done, result))
@@ -139,6 +142,72 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
             self.update_btn.configure(state="disabled")
         else:
             self._refresh_update_button()
+
+    def report_callback_exception(self, exc, val, tb):
+        """Errors in Tk callbacks go to the log as well as to the console."""
+        core.log.error("unexpected error", exc_info=(exc, val, tb))
+        super().report_callback_exception(exc, val, tb)
+
+    # ----- keyboard shortcuts ---------------------------------------------- #
+
+    MOD_KEY = "Command" if sys.platform == "darwin" else "Control"
+    MOD_LABEL = "⌘" if sys.platform == "darwin" else "Ctrl+"
+
+    def shortcut_list(self) -> List[Tuple[str, str]]:
+        """(keys, what they do) for the shortcuts window."""
+        m = self.MOD_LABEL
+        plain = lambda key: re.sub(r"^[^\w]+", "", t(key)).strip()  # noqa: E731 - drop the button's emoji
+        return [(f"F5  /  {m}R", plain("check_updates")), (f"{m}U", plain("update_selected")),
+                (f"{m}F", t("sc_filter")), ("Esc", t("sc_clear_filter")), (f"{m}A", plain("select_all")),
+                (f"{m}↑  /  {m}↓", t("sc_switch_profile")), (f"{m}N", plain("new_profile")),
+                (f"{m}E", plain("edit_profile")), (f"{m}B", plain("backups_title")),
+                (f"{m},", plain("settings")), ("F1", t("sc_help"))]
+
+    def _bind_shortcuts(self):
+        k = self.MOD_KEY
+        actions = {
+            "<F5>": self.check_updates, f"<{k}-r>": self.check_updates, f"<{k}-u>": self.update_selected,
+            f"<{k}-f>": self._focus_filter, "<Escape>": self._clear_filter, f"<{k}-a>": self._shortcut_select_all,
+            f"<{k}-Up>": lambda: self._switch_profile(-1), f"<{k}-Down>": lambda: self._switch_profile(1),
+            f"<{k}-n>": self.add_profile, f"<{k}-e>": self.edit_profile, f"<{k}-b>": self.show_backups,
+            f"<{k}-comma>": lambda: SettingsDialog(self), "<F1>": self.show_shortcuts,
+        }
+        for sequence, action in actions.items():
+            self.bind_all(sequence, lambda event, a=action: self._run_shortcut(event, a), add="+")
+
+    def _run_shortcut(self, event, action: Callable):
+        # Only in the main window, not in a dialog that is open on top of it
+        widget = event.widget if isinstance(event.widget, tk.Misc) else None
+        if widget is None or widget.winfo_toplevel() is not self or self.busy and action != self.show_shortcuts:
+            return None
+        action()
+        return "break"
+
+    def _focus_filter(self):
+        self.search_entry.focus_set()
+        self.search_entry.select_range(0, "end")
+
+    def _clear_filter(self):
+        if self.search_entry.get():
+            self.search_entry.delete(0, "end")
+            self._fill_tree()
+        self.focus_set()
+
+    def _shortcut_select_all(self):
+        if self.focus_get() is not getattr(self.search_entry, "_entry", None):  # Ctrl+A in the filter selects text
+            self._toggle_all()
+
+    def _switch_profile(self, step: int):
+        profiles = self.config_data["profiles"]
+        current = self.current_profile()
+        if not profiles or current is None:
+            return
+        index = (profiles.index(current) + step) % len(profiles)
+        self.select_profile(profiles[index]["name"])
+
+    def show_shortcuts(self):
+        lines = [f"{keys:<14}  {text}" for keys, text in self.shortcut_list()]
+        messagebox.showinfo(t("shortcuts_btn"), "\n".join(lines), parent=self)
 
     # ----- layout ---------------------------------------------------------- #
 
@@ -770,6 +839,7 @@ def self_test() -> int:
 def main():
     if "--self-test" in sys.argv:
         sys.exit(self_test())
+    core.setup_logging()
     app = App()
     app.mainloop()
 
