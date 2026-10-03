@@ -16,7 +16,7 @@ import customtkinter as ctk
 import app_updater
 import i18n
 import updater_core as core
-from dialogs import BackupsDialog, ChangelogDialog, ImportDialog, ProfileDialog, SettingsDialog  # noqa: F401
+from dialogs import BackupsDialog, ChangelogDialog, ImportDialog, ProfileDialog, SettingsDialog, VersionPickerDialog  # noqa: F401
 from i18n import t
 from mod_icons import IconCache
 from mod_table import ModTableMixin
@@ -683,10 +683,12 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
         allow_beta = self.config_data["allow_beta"]
         content = profile.get("content", core.CONTENT_MODS)
         ignored = list(profile.get("ignored", []))
+        pinned = dict(profile.get("pinned", {}))
         server = bool(profile.get("server"))
         self.run_task(
             lambda: core.scan_mods(self.client, path, game_version, profile["loader"], allow_beta,
-                                   self._progress_cb, content=content, ignored=ignored, server=server),
+                                   self._progress_cb, content=content, ignored=ignored, server=server,
+                                   pinned=pinned),
             self._on_scan_done)
 
     def _on_scan_done(self, result: core.ScanResult):
@@ -738,13 +740,33 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
         self.run_task(lambda: core.update_mods(self.client, selected, profile["path"], backup, self._progress_cb),
                       lambda backup_dir: self._on_update_done(selected, backup_dir))
 
+    def install_version(self, mod: core.ModInfo, version: Dict):
+        """Install a version chosen in the version picker and pin the mod to it."""
+        profile = self.current_profile()
+        if not profile or self.busy or not mod.project_id or not self.confirm_game_closed(profile["path"]):
+            return
+        project_id = mod.project_id
+        mod.latest = version
+        self._set_busy(True)
+        self.progress.set(0)
+        backup = self.config_data["backup_mods"]
+
+        def done(backup_dir: Optional[str]):
+            if mod.status == core.STATUS_UPDATED:
+                profile.setdefault("pinned", {})[project_id] = version.get("id", "")
+                core.save_config(self.config_data)
+                mod.status = core.STATUS_PINNED
+            self._on_update_done([mod], backup_dir)
+
+        self.run_task(lambda: core.update_mods(self.client, [mod], profile["path"], backup, self._progress_cb), done)
+
     def _on_update_done(self, mods: List[core.ModInfo], backup_dir: Optional[str]):
         self._set_busy(False)
         self.last_scan = None
         self.checked = set()
         self._fill_tree()
         self._update_summary()
-        ok = sum(1 for m in mods if m.status in (core.STATUS_UPDATED, core.STATUS_INSTALLED))
+        ok = sum(1 for m in mods if m.status in (core.STATUS_UPDATED, core.STATUS_INSTALLED, core.STATUS_PINNED))
         installed = sum(1 for m in mods if m.status == core.STATUS_INSTALLED)
         failed = [m for m in mods if m.status == core.STATUS_FAILED]
         text = t("updated_count", n=ok - installed)

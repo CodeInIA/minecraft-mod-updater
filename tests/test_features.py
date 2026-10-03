@@ -221,3 +221,28 @@ def test_disabling_never_overwrites_a_file(tmp_path):
         pass
     assert (folder / "a.jar").read_bytes() == b"new" and (folder / "a.jar.disabled").read_bytes() == b"old"
     assert mod.path == str(folder / "a.jar")
+
+
+def test_pinned_mods_are_kept(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    result = core.scan_mods(fake_modrinth(), str(mods_dir), "26.3", "fabric", False, NO_PROGRESS,
+                            pinned={"sodium": "S1"})
+    sodium = next(m for m in result.mods if m.filename == "sodium-old.jar")
+    assert sodium.status == core.STATUS_PINNED and not sodium.actionable
+    lithium = next(m for m in result.mods if m.filename == "lithium-old.jar.disabled")
+    assert lithium.status == core.STATUS_UPDATE  # other mods are not affected
+
+
+def test_installing_an_older_version(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    client = fake_modrinth()
+    old = version("S0", ["26.3"], ["fabric"], "2026-01-01", project="sodium", number="0.5",
+                  files=[file_entry("sodium-0.5.jar", b"sodium-0.5")])
+    client.payloads["https://cdn.example/sodium-0.5.jar"] = b"sodium-0.5"
+    client.all_versions = [old]
+    result = core.scan_mods(client, str(mods_dir), "26.3", "fabric", False, NO_PROGRESS)
+    sodium = next(m for m in result.mods if m.filename == "sodium-old.jar")
+    assert core.available_versions(client, sodium, "26.3", ["fabric"]) == [old]
+    sodium.latest = old
+    core.update_mods(client, [sodium], str(mods_dir), False, NO_PROGRESS)
+    assert (mods_dir / "sodium-0.5.jar").exists() and not (mods_dir / "sodium-old.jar").exists()

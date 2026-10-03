@@ -11,7 +11,7 @@ import customtkinter as ctk
 
 import mod_icons
 import updater_core as core
-from dialogs import ChangelogDialog
+from dialogs import ChangelogDialog, VersionPickerDialog
 from i18n import t
 from mod_icons import IconCache
 from ui_common import ACCENT, SIDEBAR_BG, STATUS_ORDER, TREE_ITEM_PADDING, is_dark, open_folder, pick, row_status, ui_font_family
@@ -115,6 +115,8 @@ class ModTableMixin:
             parts.append(t("sum_no_compatible", n=counts[core.STATUS_NO_COMPATIBLE]))
         if counts[core.STATUS_NOT_FOUND]:
             parts.append(t("sum_not_found", n=counts[core.STATUS_NOT_FOUND]))
+        if counts[core.STATUS_PINNED]:
+            parts.append(t("sum_pinned", n=counts[core.STATUS_PINNED]))
         if counts[core.STATUS_IGNORED]:
             parts.append(t("sum_ignored", n=counts[core.STATUS_IGNORED]))
         sides = sum(1 for m in self.mods if m.side_warning)
@@ -184,6 +186,10 @@ class ModTableMixin:
         if mod.page_url:
             menu.add_command(label=t("open_in_modrinth"), command=lambda: webbrowser.open(mod.page_url))
         if mod.current and mod.project_id and not self.busy and self.last_scan:
+            menu.add_command(label=t("menu_choose_version"),
+                             command=lambda: VersionPickerDialog(cast("App", self), mod))
+            if mod.status == core.STATUS_PINNED:
+                menu.add_command(label=t("menu_unpin"), command=lambda: self.unpin(mod))
             ignored = mod.status == core.STATUS_IGNORED
             menu.add_command(label=t("menu_unignore") if ignored else t("menu_ignore"),
                              command=lambda: self.set_ignored(mod, not ignored))
@@ -221,6 +227,23 @@ class ModTableMixin:
         scan = self.last_scan
         ChangelogDialog(cast("App", self), mod, (scan.game_version or "") if scan else "", scan.loaders if scan else [])
 
+    def unpin(self, mod: core.ModInfo):
+        """Let a pinned mod be updated again."""
+        profile = self.current_profile()
+        if not profile:
+            return
+        profile.setdefault("pinned", {}).pop(mod.project_id, None)
+        core.save_config(self.config_data)
+        self._restore_status(mod)
+
+    def _restore_status(self, mod: core.ModInfo):
+        scan = self.last_scan
+        mod.status = core.determine_status(mod, (scan.game_version or "") if scan else "", scan.loaders if scan else [])
+        if mod.actionable:
+            self.checked.add(mod.path)
+        self._fill_tree()
+        self._update_summary()
+
     def set_ignored(self, mod: core.ModInfo, ignored: bool):
         """Stop (or resume) offering updates for a mod in the current profile."""
         profile = self.current_profile()
@@ -232,15 +255,17 @@ class ModTableMixin:
         elif not ignored and mod.project_id in listed:
             listed.remove(mod.project_id)
         core.save_config(self.config_data)
-        scan = self.last_scan
-        if ignored:
-            mod.status = core.STATUS_IGNORED
-            self.checked.discard(mod.path)
-        else:
-            mod.status = core.determine_status(mod, (scan.game_version or "") if scan else "",
-                                               scan.loaders if scan else [])
-            if mod.actionable:
-                self.checked.add(mod.path)
+        if not ignored:
+            pinned = mod.project_id in profile.get("pinned", {})
+            if pinned:
+                mod.status = core.STATUS_PINNED
+                self._fill_tree()
+                self._update_summary()
+            else:
+                self._restore_status(mod)
+            return
+        mod.status = core.STATUS_IGNORED
+        self.checked.discard(mod.path)
         self._fill_tree()
         self._update_summary()
 

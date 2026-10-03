@@ -179,3 +179,41 @@ def test_disable_a_mod_from_the_table(app, tmp_path, monkeypatch):
     assert "Disabled" in app.tree.item(str(jar) + ".disabled", "text") or mod.disabled
     app.set_enabled(mod, True)
     assert jar.exists() and not mod.disabled
+
+
+def test_choose_a_version_and_pin_it(app, tmp_path, monkeypatch):
+    import time
+
+    import mod_updater
+    monkeypatch.setattr(core, "game_running", lambda _folder: False)
+    app.config_data["profiles"] = [{"name": "p", "path": str(tmp_path), "game_version": "26.3", "loader": "fabric",
+                                    "ignored": [], "pinned": {}}]
+    app.config_data["current_profile"] = "p"
+    app.refresh_profiles()
+    app._on_scan_done(scan_with_dependency(tmp_path))
+    sodium = app.mods[0]
+    older = {"id": "S0", "version_number": "0.5", "project_id": "sodium", "version_type": "beta",
+             "date_published": "2026-01-01", "files": []}
+    monkeypatch.setattr(core, "available_versions", lambda *a: [older])
+    dialog = mod_updater.VersionPickerDialog(app, sodium)
+    end = time.time() + 5
+    while time.time() < end and not dialog.versions:
+        app.update()
+        time.sleep(0.02)
+    assert list(dialog.versions) == ["S0"]
+
+    def fake_update(client, mods, folder, backup, progress):
+        mods[0].status = core.STATUS_UPDATED
+        return None
+    monkeypatch.setattr(core, "update_mods", fake_update)
+    dialog.choice.set("S0")
+    dialog._install()
+    end = time.time() + 5
+    while time.time() < end and app.busy:
+        app.update()
+        time.sleep(0.02)
+    assert app.current_profile()["pinned"] == {"sodium": "S0"}
+    assert sodium.status == core.STATUS_PINNED and sodium.latest is older
+    app.last_scan = scan_with_dependency(tmp_path)
+    app.unpin(sodium)
+    assert app.current_profile()["pinned"] == {}

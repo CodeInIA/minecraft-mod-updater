@@ -31,7 +31,8 @@ MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")  # [text](url) -> text in c
 TREE_ITEM_PADDING = 10  # left padding of rows in the mod table (see _style_tree)
 
 # Display order of statuses in the table
-STATUS_ORDER = [core.STATUS_MISSING_DEP, core.STATUS_UPDATE, core.STATUS_UP_TO_DATE, core.STATUS_IGNORED,
+STATUS_ORDER = [core.STATUS_MISSING_DEP, core.STATUS_UPDATE, core.STATUS_UP_TO_DATE, core.STATUS_PINNED,
+                core.STATUS_IGNORED,
                 core.STATUS_NOT_FOUND, core.STATUS_NO_COMPATIBLE, core.STATUS_INSTALLED, core.STATUS_UPDATED,
                 core.STATUS_FAILED, core.STATUS_UNCHECKED]
 # (light, dark) foreground per status
@@ -45,6 +46,7 @@ STATUS_COLORS = {
     core.STATUS_MISSING_DEP: ("#6D28D9", "#B79CFF"),
     core.STATUS_INSTALLED: ("#1F8A4C", "#7BE0A3"),
     core.STATUS_IGNORED: ("#7A8088", "#8A9099"),
+    core.STATUS_PINNED: ("#0E7490", "#5CC8E0"),
     core.STATUS_UNCHECKED: ("#5F6670", "#B4BAC1"),
 }
 CONTENT_ORDER = ["mods", "resourcepacks", "shaderpacks", "datapacks"]

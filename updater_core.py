@@ -106,7 +106,7 @@ DEFAULT_CONFIG = {
     "config_version": 2,
     "profiles": [
         {"name": "client", "path": DEFAULT_MINECRAFT_MODS, "game_version": AUTO, "loader": AUTO,
-         "color": PROFILE_COLORS[0], "content": CONTENT_MODS, "server": False, "ignored": []},
+         "color": PROFILE_COLORS[0], "content": CONTENT_MODS, "server": False, "ignored": [], "pinned": {}},
     ],
     "current_profile": "client",
     "backup_mods": True,
@@ -171,6 +171,8 @@ def load_config() -> Dict:
             profile["server"] = any(w in profile.get("name", "").lower() for w in ("server", "servidor", "serveur"))
         if not isinstance(profile.get("ignored"), list):
             profile["ignored"] = []
+        if not isinstance(profile.get("pinned"), dict):
+            profile["pinned"] = {}  # project id -> version id chosen by the user
     return config
 
 
@@ -392,6 +394,7 @@ STATUS_FAILED = "failed"
 STATUS_MISSING_DEP = "missing_dependency"  # required by another mod but not installed
 STATUS_INSTALLED = "installed"             # a missing dependency that was just installed
 STATUS_IGNORED = "ignored"                 # the user chose not to update this mod
+STATUS_PINNED = "pinned"                   # the user chose a version of this mod and keeps it
 STATUS_UNCHECKED = "unchecked"             # listed from the folder, not checked on Modrinth yet
 
 # Statuses whose rows can be ticked and updated/installed
@@ -848,7 +851,8 @@ def detect_from_versions(versions: Iterable[Dict]) -> Dict[str, str]:
 
 def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader: str,
               allow_beta: bool, progress: ProgressFn, content: str = CONTENT_MODS,
-              ignored: Iterable[str] = (), server: bool = False) -> ScanResult:
+              ignored: Iterable[str] = (), server: bool = False,
+              pinned: Optional[Dict[str, str]] = None) -> ScanResult:
     """Hash every file in the folder and look up installed/latest versions on Modrinth.
 
     `game_version` and `loader` may be AUTO, in which case they are detected
@@ -859,6 +863,7 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
     spec = CONTENT_TYPES.get(content, CONTENT_TYPES[CONTENT_MODS])
     fixed_loaders = spec["loaders"]
     ignored = set(ignored)
+    pinned = pinned or {}
     mods, by_hash = _hash_folder(mod_folder, progress, spec["extensions"])
     result = ScanResult(mods=mods, game_version=None if game_version == AUTO else game_version,
                         loader=None if (loader == AUTO or fixed_loaders) else loader, content=content)
@@ -908,6 +913,8 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
             mod.page_url = modrinth_page_url(project, mod.current.get("project_id", ""))
             if mod.project_id in ignored:
                 mod.status = STATUS_IGNORED
+            elif mod.project_id in pinned:
+                mod.status = STATUS_PINNED
             if project.get("server_side" if server else "client_side") == "unsupported":
                 mod.side_warning = SIDE_CLIENT_ONLY if server else SIDE_SERVER_ONLY
 
@@ -931,6 +938,8 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
             mod.page_url = modrinth_page_url(project, project["id"])
             if mod.project_id in ignored:
                 mod.status = STATUS_IGNORED
+            elif mod.project_id in pinned:
+                mod.status = STATUS_PINNED
             if project.get("server_side" if server else "client_side") == "unsupported":
                 mod.side_warning = SIDE_CLIENT_ONLY if server else SIDE_SERVER_ONLY
     _fill_icons_from_jars(by_hash.values())
@@ -989,6 +998,14 @@ def find_missing_dependencies(client: ModrinthClient, mods: List[ModInfo], mod_f
             title=project.get("title", ""), icon_url=project.get("icon_url") or "",
             page_url=modrinth_page_url(project, pid), required_by=sorted(set(names)), project_hint=pid))
     return sorted(found, key=lambda m: m.display_name.lower())
+
+
+def available_versions(client: ModrinthClient, mod: ModInfo, game_version: str,
+                       loaders: List[str]) -> List[Dict]:
+    """Every version of the mod's project for the target, newest first (for choosing one)."""
+    if not mod.project_id or not game_version or not loaders:
+        return []
+    return client.project_versions(mod.project_id, loaders, [game_version])
 
 
 def changelog_entries(client: ModrinthClient, mod: ModInfo, game_version: str,

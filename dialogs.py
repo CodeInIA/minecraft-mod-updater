@@ -251,6 +251,70 @@ class ChangelogDialog(Dialog):
         self._set_text("\n\n".join(blocks) or t("changelog_empty"))
 
 
+class VersionPickerDialog(Dialog):
+    """Choose a version of a mod to install (a newer or an older one); the mod is then pinned to it."""
+
+    def __init__(self, app: "App", mod: core.ModInfo):
+        super().__init__(app, t("choose_version_title", mod=mod.display_name), 600, 520)
+        self.app = app
+        self.mod = mod
+        scan = app.last_scan
+        self.game_version = (scan.game_version or "") if scan else ""
+        self.loaders = scan.loaders if scan else []
+        ctk.CTkLabel(self, text=t("choose_version_title", mod=mod.display_name),
+                     font=ctk.CTkFont(size=18, weight="bold"), anchor="w").pack(fill="x", padx=20, pady=(18, 2))
+        ctk.CTkLabel(self, text=t("choose_version_hint", version=self.game_version or "?",
+                                  loader=", ".join(self.loaders) or "?"),
+                     text_color=MUTED, anchor="w", justify="left", wraplength=560).pack(fill="x", padx=20)
+        self.list = ctk.CTkScrollableFrame(self, fg_color=CARD_BG, corner_radius=10)
+        self.list.pack(fill="both", expand=True, padx=20, pady=12)
+        self.message = ctk.CTkLabel(self.list, text=t("versions_loading"), text_color=MUTED)
+        self.message.pack(padx=12, pady=16, anchor="w")
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.pack(fill="x", padx=20, pady=(0, 18))
+        self.install_btn = ctk.CTkButton(buttons, text=t("install_version"), fg_color=ACCENT,
+                                         hover_color=ACCENT_HOVER, state="disabled", command=self._install)
+        self.install_btn.pack(side="right")
+        ctk.CTkButton(buttons, text=t("cancel"), fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"), command=self.destroy).pack(side="right", padx=8)
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.choice = tk.StringVar(value="")
+        self.versions: Dict[str, Dict] = {}
+        app.run_task(lambda: core.available_versions(app.client, mod, self.game_version, self.loaders),
+                     self._show, lambda e: self._show_message(str(e)))
+
+    def _show_message(self, text: str):
+        if self.winfo_exists():
+            self.message.configure(text=text)
+
+    def _show(self, versions: List[Dict]):
+        if not self.winfo_exists():
+            return
+        if not versions:
+            return self._show_message(t("no_versions"))
+        self.message.destroy()
+        installed = (self.mod.current or {}).get("id")
+        for v in versions:
+            vid = v.get("id", "")
+            self.versions[vid] = v
+            kind = v.get("version_type", "release")
+            text = f"{v.get('version_number', '?')}   ·   {(v.get('date_published') or '')[:10]}"
+            if kind != "release":
+                text += f"   [{kind}]"
+            if vid == installed:
+                text += f"   ({t('version_installed_tag')})"
+            ctk.CTkRadioButton(self.list, text=text, variable=self.choice, value=vid, fg_color=ACCENT,
+                               hover_color=ACCENT_HOVER, state="disabled" if vid == installed else "normal",
+                               command=lambda: self.install_btn.configure(state="normal")).pack(
+                anchor="w", padx=12, pady=5)
+
+    def _install(self):
+        version = self.versions.get(self.choice.get())
+        if version:
+            self.destroy()
+            self.app.install_version(self.mod, version)
+
+
 class BackupsDialog(Dialog):
     """List the backups of the current profile and undo the latest update."""
 
