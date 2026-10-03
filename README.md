@@ -13,7 +13,14 @@ A desktop app to keep your Minecraft mods up to date with the latest versions fr
 - **Multiple profiles** (client, server, modpacks…), each with its own folder, Minecraft version, loader and color. Drag them in the sidebar to reorder them.
 - **Automatic detection** (default): the Minecraft version and loader are detected from the mods already in the profile folder every time you check for updates.
 - **Migrate a modpack to a new Minecraft version**: pick the new version and every mod is swapped for its build for that version.
-- **Safe updates**: downloads are verified by SHA-512, replaced files are moved to a backup folder, and disabled mods (`.jar.disabled`) stay disabled.
+- **Safe updates**: downloads are verified by SHA-512, replaced files are moved to a backup folder, and disabled mods (`.jar.disabled`) stay disabled. Any update can be **undone** from the **Backups** button.
+- **Missing dependencies**: if a mod (or its update) needs another mod you do not have, such as Fabric API, it is offered for installation too.
+- **See what changes** before updating: right-click a mod (or double-click it) to read the changelog of every version between yours and the new one.
+- **Keep a mod as it is**: right-click → *Don't update this mod*, per profile.
+- **Resource packs, shaders and data packs** are updated the same way: choose the content type of each profile.
+- **Client/server warnings**: mark a profile as a server and the app points out mods that only work on the client (and vice versa).
+- **Import from launchers**: profiles are created from the instances of Prism Launcher, Modrinth App, CurseForge, ATLauncher and MultiMC.
+- **Fast rescans**: unchanged files are not hashed again.
 - **Updates itself**: at startup the app checks GitHub for a new version and installs it automatically (Windows asks for administrator permission). This can be turned off in Settings; the app then only shows a notice with an **Update now** button.
 
 ## 📥 Download
@@ -41,6 +48,8 @@ python mod_updater.py
 2. Leave Minecraft version and loader on **Auto** to detect them from the mods in the folder, or choose a specific version to migrate your mods to it.
 3. Press **Check for updates**. Each mod shows its icon, installed version, available version and status; click its name to open it on Modrinth.
 4. Tick the mods you want (or use **Select all**) and press **Update selected**.
+
+Right-click a mod for its changelog, its Modrinth page, *Don't update this mod* or *Show in folder*. **Backups** lists the backups of the profile and undoes the latest update.
 
 Settings (⚙): backups on/off, allow beta/alpha mod versions, show Minecraft snapshots, theme, language, and automatic or manual updates of the app.
 
@@ -84,7 +93,14 @@ Aplicación de escritorio para mantener tus mods de Minecraft actualizados desde
 - Varios perfiles (cliente, servidor, modpacks…), cada uno con su carpeta, versión de Minecraft, loader y color. Se reordenan arrastrándolos en la barra lateral.
 - Detección automática (por defecto) de la versión de Minecraft y el loader a partir de los mods de la carpeta del perfil.
 - Migración de un modpack a otra versión de Minecraft.
-- Descargas verificadas, copia de seguridad de los mods sustituidos y respeto de los mods desactivados.
+- Descargas verificadas, copia de seguridad de los mods sustituidos y respeto de los mods desactivados. Cualquier actualización se puede **deshacer** desde el botón **Copias**.
+- **Dependencias que faltan**: si un mod (o su actualización) necesita otro que no tienes, como Fabric API, también se ofrece para instalarlo.
+- **Ver qué cambia** antes de actualizar: clic derecho (o doble clic) en un mod para leer el changelog de cada versión entre la tuya y la nueva.
+- **Dejar un mod como está**: clic derecho → *No actualizar este mod*, en cada perfil.
+- **Resource packs, shaders y data packs** se actualizan igual: elige el tipo de contenido de cada perfil.
+- **Avisos cliente/servidor**: marca un perfil como servidor y la app te avisa de los mods que solo sirven en el cliente (y al revés).
+- **Importar de launchers**: crea perfiles a partir de las instancias de Prism Launcher, Modrinth App, CurseForge, ATLauncher y MultiMC.
+- **Análisis rápidos**: los archivos que no han cambiado no se vuelven a calcular.
 - **Se actualiza sola**: al iniciarse comprueba en GitHub si hay una versión nueva y la instala automáticamente (Windows pide permiso de administrador). Se puede desactivar en Ajustes; entonces solo muestra un aviso con el botón **Actualizar ahora**.
 
 ## Descargar
