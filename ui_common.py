@@ -125,6 +125,15 @@ def pick(color) -> str:
     return color[1] if is_dark() else color[0]
 
 
+def compact_number(n: int) -> str:
+    """1234 -> 1.2K, 235049829 -> 235M."""
+    for limit, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")):
+        if n >= limit:
+            value = n / limit
+            return (f"{value:.1f}".rstrip("0").rstrip(".") if value < 10 else f"{value:.0f}") + suffix
+    return str(n)
+
+
 def shorten_path(path: str, limit: int = 80) -> str:
     if len(path) <= limit:
         return path

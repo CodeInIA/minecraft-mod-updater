@@ -315,6 +315,12 @@ class ModrinthClient:
                                  params={"loaders": json.dumps(loaders), "game_versions": json.dumps(game_versions)})
         return sorted(versions, key=lambda v: v.get("date_published", ""), reverse=True)
 
+    def search(self, query: str, facets: List[List[str]], limit: int = 20) -> List[Dict]:
+        """Projects matching a search, as Modrinth's search returns them."""
+        params = {"query": query, "facets": json.dumps(facets), "limit": limit,
+                  "index": "relevance" if query.strip() else "downloads"}
+        return self._request("GET", "/search", params=params).get("hits", [])
+
     def game_versions(self) -> List[Dict]:
         versions = self._request("GET", "/tag/game_version")
         return sorted(versions, key=lambda v: v.get("date", ""), reverse=True)
@@ -968,6 +974,61 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
     first = (STATUS_MISSING_DEP, STATUS_UPDATE)
     mods.sort(key=lambda m: (m.status not in first, m.status != STATUS_MISSING_DEP, m.display_name.lower()))
     return result
+
+
+PROJECT_TYPES = {"mods": "mod", "resourcepacks": "resourcepack", "shaderpacks": "shader", "datapacks": "datapack"}
+
+
+def search_projects(client: ModrinthClient, query: str, content: str, game_version: str,
+                    loaders: List[str]) -> List[Dict]:
+    """Modrinth projects of the profile's content type that have a version for its target."""
+    facets = [[f"project_type:{PROJECT_TYPES.get(content, 'mod')}"], [f"versions:{game_version}"]]
+    if content == CONTENT_MODS and loaders:
+        facets.append([f"categories:{loader}" for loader in loaders])
+    return client.search(query, facets)
+
+
+def target_loaders(content: str, loader: Optional[str]) -> List[str]:
+    """Loaders to ask Modrinth for: the content type's own, or the mod loader and compatible ones."""
+    spec = CONTENT_TYPES.get(content, CONTENT_TYPES[CONTENT_MODS])
+    if spec["loaders"]:
+        return list(spec["loaders"])
+    return query_loaders(loader) if loader and loader != AUTO else []
+
+
+def plan_install(client: ModrinthClient, project: Dict, mod_folder: str, game_version: str, loaders: List[str],
+                 allow_beta: bool, content: str = CONTENT_MODS) -> List[ModInfo]:
+    """A project found in the search, plus the required dependencies that are not installed yet.
+
+    The result is ready for update_mods(), which installs them as new files.
+    """
+    project_id = project.get("project_id") or project.get("id") or ""
+    candidates = client.project_versions(project_id, loaders, [game_version])
+    stable = [v for v in candidates if v.get("version_type") == "release"]
+    picked = candidates if allow_beta else (stable or candidates)
+    file_info = primary_file(picked[0]) if picked else None
+    if not file_info:
+        raise ModrinthError(t("no_versions"))
+    version = picked[0]
+    new = ModInfo(path=os.path.join(mod_folder, file_info["filename"]), latest=version, status=STATUS_UPDATE,
+                  title=project.get("title", ""), icon_url=project.get("icon_url") or "",
+                  page_url=f"https://modrinth.com/{project.get('project_type') or 'mod'}/{project.get('slug') or project_id}",
+                  project_hint=project_id)
+    spec = CONTENT_TYPES.get(content, CONTENT_TYPES[CONTENT_MODS])
+    _mods, by_hash = _hash_folder(mod_folder, lambda _f, _m: None, spec["extensions"])
+    current = client.versions_from_hashes(list(by_hash)) if by_hash else {}
+    if any(v.get("project_id") == project_id for v in current.values()):
+        raise ModrinthError(t("search_already"))
+    to_install = [new]
+    if content == CONTENT_MODS:
+        installed = [ModInfo(path=m.path, current=current[h], status=STATUS_UP_TO_DATE)
+                     for h, m in by_hash.items() if h in current]
+        to_install += find_missing_dependencies(client, installed + [new], mod_folder, game_version, loaders, allow_beta)
+    return to_install
+
+
+def installed_projects(mods: Iterable[ModInfo]) -> set:
+    return {m.project_id for m in mods if m.project_id and m.status != STATUS_MISSING_DEP}
 
 
 @dataclass

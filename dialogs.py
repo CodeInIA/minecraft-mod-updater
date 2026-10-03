@@ -2,6 +2,7 @@
 
 import os
 import tkinter as tk
+import webbrowser
 from tkinter import colorchooser, filedialog, messagebox
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -22,6 +23,7 @@ from ui_common import (
     MARKDOWN_LINK,
     MUTED,
     Dialog,
+    compact_number,
     content_label,
     from_label,
     open_folder,
@@ -313,6 +315,189 @@ class VersionPickerDialog(Dialog):
         if version:
             self.destroy()
             self.app.install_version(self.mod, version)
+
+
+class SearchDialog(Dialog):
+    """Find mods (or packs/shaders) on Modrinth for the profile's target and install them."""
+
+    ROW_ICON = 36
+
+    def __init__(self, app: "App"):
+        super().__init__(app, t("search_title"), 700, 640)
+        self.app = app
+        self.profile = app.current_profile() or {}
+        self.content = self.profile.get("content", core.CONTENT_MODS)
+        self.game_version = ""
+        self.loaders: List[str] = []
+        self.installed = core.installed_projects(app.mods)
+        self.rows: Dict[str, Dict[str, Any]] = {}
+        self._images: List[ctk.CTkImage] = []
+        ctk.CTkLabel(self, text=t("search_title"), font=ctk.CTkFont(size=20, weight="bold"),
+                     anchor="w").pack(fill="x", padx=22, pady=(18, 2))
+        self.target_label = ctk.CTkLabel(self, text=t("search_target_detecting"), text_color=MUTED, anchor="w",
+                                         justify="left", wraplength=650)
+        self.target_label.pack(fill="x", padx=22)
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.pack(fill="x", padx=22, pady=(12, 0))
+        self.query = ctk.CTkEntry(bar, placeholder_text=t("search_placeholder"))
+        self.query.pack(side="left", fill="x", expand=True)
+        self.query.bind("<Return>", lambda _e: self.search())
+        self.search_btn = ctk.CTkButton(bar, text=t("search_go"), width=110, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                        state="disabled", command=self.search)
+        self.search_btn.pack(side="left", padx=(8, 0))
+        self.list = ctk.CTkScrollableFrame(self, fg_color=CARD_BG, corner_radius=10)
+        self.list.pack(fill="both", expand=True, padx=22, pady=12)
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.pack(fill="x", padx=22, pady=(0, 18))
+        ctk.CTkButton(buttons, text=t("close"), width=110, command=self.destroy).pack(side="right")
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self._message(t("search_target_detecting"))
+        self._find_target()
+
+    # ----- target ----------------------------------------------------------- #
+
+    def _find_target(self):
+        """The profile's Minecraft version and loader: from the last check, the profile, or detected."""
+        scan, profile = self.app.last_scan, self.profile
+        version, loader = profile.get("game_version", core.AUTO), profile.get("loader", core.AUTO)
+        if scan and scan.game_version:
+            version, loader = scan.game_version, scan.loader or loader
+        if version != core.AUTO and (loader != core.AUTO or self.content != core.CONTENT_MODS):
+            return self._set_target({"game_version": version, "loader": loader})
+        self.app.run_task(lambda: core.detect_target(self.app.client, profile["path"], self.content),
+                          lambda found: self._set_target({"game_version": version if version != core.AUTO
+                                                          else found.get("game_version", ""),
+                                                          "loader": loader if loader != core.AUTO
+                                                          else found.get("loader", "")}),
+                          lambda _e: self._set_target({}))
+
+    def _set_target(self, target: Dict[str, str]):
+        if not self.winfo_exists():
+            return
+        self.game_version = target.get("game_version") or ""
+        self.loaders = core.target_loaders(self.content, target.get("loader"))
+        if not self.game_version or not self.loaders:
+            self.target_label.configure(text=t("search_target_unknown"), text_color=DANGER)
+            self._message(t("search_target_unknown"))
+            return
+        loader = target.get("loader") if self.content == core.CONTENT_MODS else content_label(self.content)
+        self.target_label.configure(text=t("search_target", version=self.game_version, loader=loader))
+        self.search_btn.configure(state="normal")
+        self.query.focus_set()
+        self.search()
+
+    # ----- results ---------------------------------------------------------- #
+
+    def _message(self, text: str):
+        for child in self.list.winfo_children():
+            child.destroy()
+        ctk.CTkLabel(self.list, text=text, text_color=MUTED, wraplength=600, justify="left").pack(
+            padx=12, pady=16, anchor="w")
+
+    def search(self):
+        if not self.game_version:
+            return
+        query = self.query.get().strip()
+        self.search_btn.configure(state="disabled")
+        self._message(t("search_searching"))
+        self.app.run_task(lambda: core.search_projects(self.app.client, query, self.content, self.game_version,
+                                                       self.loaders),
+                          self._show, lambda e: self._failed(e))
+
+    def _failed(self, err: Exception):
+        if self.winfo_exists():
+            self.search_btn.configure(state="normal")
+            self._message(str(err))
+
+    def _show(self, hits: List[Dict]):
+        if not self.winfo_exists():
+            return
+        self.search_btn.configure(state="normal")
+        for child in self.list.winfo_children():
+            child.destroy()
+        self.rows = {}
+        if not hits:
+            return self._message(t("search_none"))
+        for hit in hits:
+            self._add_row(hit)
+        missing = self.app.icons.missing(h.get("icon_url") or "" for h in hits)
+        if missing:
+            self.app.run_task(lambda: self.app.icons.download(missing), lambda _r: self._refresh_icons(),
+                              lambda _e: None)
+
+    def _icon_image(self, url: str) -> Optional[ctk.CTkImage]:
+        image = self.app.icons.get(url)
+        if image is None:
+            return None
+        icon = ctk.CTkImage(light_image=image, dark_image=image, size=(self.ROW_ICON, self.ROW_ICON))
+        self._images.append(icon)
+        return icon
+
+    def _refresh_icons(self):
+        if not self.winfo_exists():
+            return
+        for row in self.rows.values():
+            icon = self._icon_image(row["hit"].get("icon_url") or "")
+            if icon is not None:
+                row["icon"].configure(image=icon, text="", fg_color="transparent")
+
+    def _add_row(self, hit: Dict):
+        project_id = hit.get("project_id", "")
+        row = ctk.CTkFrame(self.list, fg_color="transparent")
+        row.pack(fill="x", padx=6, pady=6)
+        icon = self._icon_image(hit.get("icon_url") or "")
+        icon_label = ctk.CTkLabel(row, text="" if icon else "▢", image=icon, width=self.ROW_ICON,
+                                  height=self.ROW_ICON, fg_color="transparent" if icon else ("gray80", "gray25"),
+                                  corner_radius=8)
+        icon_label.pack(side="left", padx=(4, 10), anchor="n")
+        installed = project_id in self.installed
+        button = ctk.CTkButton(row, text=t("search_installed") if installed else t("search_install"), width=100,
+                               fg_color=ACCENT if not installed else "transparent", hover_color=ACCENT_HOVER,
+                               border_width=0 if not installed else 1, text_color=("gray10", "gray90"),
+                               state="disabled" if installed else "normal",
+                               command=lambda: self._install(project_id))
+        if not installed:
+            button.configure(text_color=("white", "white"))
+        button.pack(side="right", padx=(10, 4), anchor="center")
+        text = ctk.CTkFrame(row, fg_color="transparent")
+        text.pack(side="left", fill="x", expand=True)
+        title = ctk.CTkLabel(text, text=hit.get("title", "?"), font=ctk.CTkFont(size=14, weight="bold"), anchor="w",
+                             cursor="hand2")
+        title.pack(fill="x")
+        title.bind("<Button-1>", lambda _e: webbrowser.open(
+            f"https://modrinth.com/{hit.get('project_type') or 'mod'}/{hit.get('slug') or project_id}"))
+        details = t("search_by", author=hit.get("author", "?")) + "  ·  " + \
+            t("search_downloads", n=compact_number(int(hit.get("downloads") or 0)))
+        ctk.CTkLabel(text, text=details, text_color=MUTED, anchor="w", font=ctk.CTkFont(size=11)).pack(fill="x")
+        ctk.CTkLabel(text, text=hit.get("description", ""), anchor="w", justify="left", wraplength=440).pack(fill="x")
+        self.rows[project_id] = {"hit": hit, "button": button, "icon": icon_label}
+
+    # ----- install ----------------------------------------------------------- #
+
+    def _install(self, project_id: str):
+        row = self.rows.get(project_id)
+        if not row or self.app.busy:
+            return
+        button = row["button"]
+        button.configure(state="disabled", text=t("search_installing"))
+
+        def done(mods: List[core.ModInfo]):
+            failed = [m for m in mods if m.status == core.STATUS_FAILED]
+            if self.winfo_exists():
+                if failed:
+                    button.configure(state="normal", text=t("search_install"))
+                else:
+                    button.configure(text=t("search_installed"), fg_color="transparent", border_width=1,
+                                     text_color=("gray10", "gray90"))
+                    self.installed |= {m.project_id for m in mods}
+
+        def failed(err: Exception):
+            if self.winfo_exists():
+                button.configure(state="normal", text=t("search_install"))
+            messagebox.showerror(t("search_title"), t("search_failed", mod=row["hit"].get("title", "?"), error=err),
+                                 parent=self if self.winfo_exists() else self.app)
+
+        self.app.install_projects(row["hit"], self.game_version, self.loaders, done, failed, parent=self)
 
 
 class MigrationDialog(Dialog):

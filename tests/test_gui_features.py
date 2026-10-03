@@ -267,3 +267,36 @@ def test_migration_dialog_and_profile_move(app, tmp_path, monkeypatch):
         time.sleep(0.02)
     assert calls == [("26.4", True)]
     assert app.current_profile()["game_version"] == "26.4"
+
+
+def test_search_dialog_lists_and_installs(app, tmp_path, monkeypatch):
+    import time
+
+    import mod_updater
+    from ui_common import compact_number
+    assert (compact_number(235049829), compact_number(1234), compact_number(999)) == ("235M", "1.2K", "999")
+    monkeypatch.setattr(core, "game_running", lambda _folder: False)
+    app.config_data["profiles"] = [{"name": "p", "path": str(tmp_path), "game_version": "26.3", "loader": "fabric",
+                                    "ignored": [], "pinned": {}}]
+    app.config_data["current_profile"] = "p"
+    app.refresh_profiles()
+    hits = [{"project_id": "modmenu", "slug": "modmenu", "title": "Mod Menu", "author": "Prospector",
+             "downloads": 1234, "description": "Adds a mod menu", "icon_url": "", "project_type": "mod"}]
+    monkeypatch.setattr(core, "search_projects", lambda *a: hits)
+    installed = core.ModInfo(path=str(tmp_path / "modmenu.jar"), title="Mod Menu", status=core.STATUS_INSTALLED,
+                             latest={"project_id": "modmenu"})
+    monkeypatch.setattr(core, "plan_install", lambda *a: [installed])
+    monkeypatch.setattr(core, "update_mods", lambda *a: None)
+    dialog = mod_updater.SearchDialog(app)
+
+    def wait(condition):
+        end = time.time() + 5
+        while time.time() < end and not condition():
+            app.update()
+            time.sleep(0.02)
+    wait(lambda: dialog.rows)
+    assert list(dialog.rows) == ["modmenu"] and dialog.loaders == ["fabric"]
+    dialog._install("modmenu")
+    wait(lambda: not app.busy and "✔" in dialog.rows["modmenu"]["button"].cget("text"))
+    assert "✔" in dialog.rows["modmenu"]["button"].cget("text")
+    dialog.destroy()

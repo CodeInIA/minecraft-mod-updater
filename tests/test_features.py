@@ -281,3 +281,42 @@ def test_migration_plan_and_migrate(tmp_path):
     backup_dir, failed = core.migrate(client, plan, str(mods_dir), True, True, NO_PROGRESS)
     assert failed == [] and backup_dir
     assert sorted(os.listdir(mods_dir)) == ["lithium-old.jar.disabled", "local.jar", "sodium-0.9.jar"]
+
+
+def test_search_uses_the_profile_target():
+    client = FakeClient({}, {})
+    searches = []
+    client.search = lambda query, facets, limit=20: searches.append((query, facets)) or [{"title": "Sodium"}]
+    assert core.search_projects(client, "sod", "mods", "26.3", ["quilt", "fabric"]) == [{"title": "Sodium"}]
+    assert searches[-1] == ("sod", [["project_type:mod"], ["versions:26.3"], ["categories:quilt", "categories:fabric"]])
+    core.search_projects(client, "", "shaderpacks", "26.3", ["iris"])
+    assert searches[-1][1] == [["project_type:shader"], ["versions:26.3"]]
+    assert core.target_loaders("mods", "quilt") == ["quilt", "fabric"]
+    assert core.target_loaders("resourcepacks", core.AUTO) == ["minecraft"]
+
+
+def test_installing_from_the_search_brings_dependencies(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    client = fake_modrinth()
+    menu = version("M1", ["26.3"], ["fabric"], "2026-09-01", project="modmenu", number="21.0",
+                   files=[file_entry("modmenu-21.0.jar", b"menu")])
+    menu["version_type"] = "release"
+    menu["dependencies"] = [{"project_id": "fabric-api", "dependency_type": "required"},
+                            {"project_id": "sodium", "dependency_type": "required"}]  # sodium is installed
+    api = version("A1", ["26.3"], ["fabric"], "2026-09-01", project="fabric-api", number="0.161",
+                  files=[file_entry("fabric-api-0.161.jar", b"api")])
+    client.all_versions = [menu, api]
+    client._projects["fabric-api"] = {"title": "Fabric API", "slug": "fabric-api", "project_type": "mod"}
+    client.payloads.update({"https://cdn.example/modmenu-21.0.jar": b"menu",
+                            "https://cdn.example/fabric-api-0.161.jar": b"api"})
+    hit = {"project_id": "modmenu", "slug": "modmenu", "title": "Mod Menu", "project_type": "mod"}
+    plan = core.plan_install(client, hit, str(mods_dir), "26.3", ["fabric"], False)
+    assert [m.display_name for m in plan] == ["Mod Menu", "Fabric API"]
+    core.update_mods(client, plan, str(mods_dir), False, NO_PROGRESS)
+    assert (mods_dir / "modmenu-21.0.jar").exists() and (mods_dir / "fabric-api-0.161.jar").exists()
+    assert (mods_dir / "sodium-old.jar").exists()  # nothing replaced
+    try:
+        core.plan_install(client, {"project_id": "sodium", "title": "Sodium"}, str(mods_dir), "26.3", ["fabric"], False)
+        raise AssertionError("an installed project must not be installed again")
+    except core.ModrinthError:
+        pass

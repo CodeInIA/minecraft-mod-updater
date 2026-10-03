@@ -22,6 +22,7 @@ from dialogs import (  # noqa: F401
     ImportDialog,
     MigrationDialog,
     ProfileDialog,
+    SearchDialog,
     SettingsDialog,
     VersionPickerDialog,
 )
@@ -143,7 +144,7 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
         state = "disabled" if busy else "normal"
         for widget in (self.check_btn, self.add_btn, self.import_btn, self.edit_btn, self.delete_btn,
                        self.backups_btn, self.version_box, self.loader_menu, self.settings_btn,
-                       self.select_all_box, self.migrate_btn):
+                       self.select_all_box, self.migrate_btn, self.search_btn):
             widget.configure(state=state)
         self._apply_content_state()
         if busy:
@@ -374,17 +375,22 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
                                          command=self.show_migration)
         self.migrate_btn.pack(side="right")
 
-        # Summary + search
+        # Summary on its own line, then the table's tools: find on Modrinth | select all, filter
         summary = ctk.CTkFrame(main, fg_color="transparent")
         summary.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         self.summary_label = ctk.CTkLabel(summary, text=t("press_check"),
                                           text_color=MUTED, anchor="w")
-        self.summary_label.pack(side="left")
-        self.search_entry = ctk.CTkEntry(summary, placeholder_text=t("filter_placeholder"), width=220)
+        self.summary_label.pack(fill="x", pady=(0, 6))
+        tools = ctk.CTkFrame(summary, fg_color="transparent")
+        tools.pack(fill="x")
+        self.search_btn = ctk.CTkButton(tools, text=t("search_btn"), fg_color="transparent", border_width=1,
+                                        text_color=("gray10", "gray90"), command=self.show_search)
+        self.search_btn.pack(side="left")
+        self.search_entry = ctk.CTkEntry(tools, placeholder_text=t("filter_placeholder"), width=220)
         self.search_entry.pack(side="right")
         self.search_entry.bind("<KeyRelease>", lambda _e: self._fill_tree())
         self.select_all_var = tk.BooleanVar(value=False)
-        self.select_all_box = ctk.CTkCheckBox(summary, text=t("select_all"), variable=self.select_all_var,
+        self.select_all_box = ctk.CTkCheckBox(tools, text=t("select_all"), variable=self.select_all_var,
                                               command=self._toggle_all, fg_color=ACCENT, hover_color=ACCENT_HOVER,
                                               checkbox_width=18, checkbox_height=18)
         self.select_all_box.pack(side="right", padx=(0, 16))
@@ -754,6 +760,40 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
         backup = self.config_data["backup_mods"]
         self.run_task(lambda: core.update_mods(self.client, selected, profile["path"], backup, self._progress_cb),
                       lambda backup_dir: self._on_update_done(selected, backup_dir))
+
+    def show_search(self):
+        if self.current_profile() and not self.busy:
+            SearchDialog(self)
+
+    def install_projects(self, project: Dict, game_version: str, loaders: List[str],
+                         on_done: Callable, on_error: Callable, parent: Optional[tk.Misc] = None):
+        """Install a project found in the search (and its missing dependencies) into the current profile."""
+        profile = self.current_profile()
+        if not profile or self.busy or not self.confirm_game_closed(profile["path"], parent=parent):
+            return on_error(core.ModrinthError(t("game_running_title")))
+        folder, content = profile["path"], profile.get("content", core.CONTENT_MODS)
+        allow_beta = self.config_data["allow_beta"]
+        self._set_busy(True)
+
+        def work() -> List[core.ModInfo]:
+            mods = core.plan_install(self.client, project, folder, game_version, loaders, allow_beta, content)
+            core.update_mods(self.client, mods, folder, False, self._progress_cb)
+            return mods
+
+        def done(mods: List[core.ModInfo]):
+            self._set_busy(False)
+            installed = [m for m in mods if m.status == core.STATUS_INSTALLED]
+            text = t("search_done", mod=mods[0].display_name)
+            if len(installed) > 1:
+                text += " " + t("installed_count", n=len(installed))
+            self.show_local_mods(status=text)
+            on_done(mods)
+
+        def failed(err: Exception):
+            self._set_busy(False)
+            on_error(err)
+
+        self.run_task(work, done, failed)
 
     def show_migration(self):
         if self.current_profile() and not self.busy:
