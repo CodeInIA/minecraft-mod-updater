@@ -265,3 +265,19 @@ def test_duplicated_and_incompatible_mods_are_reported(tmp_path):
     assert jade_backup.other_versions == []  # a disabled copy is not a problem
     assert sodium.incompatible_with == ["Optifabric"] and optifine.incompatible_with == ["Sodium"]
     assert not missing.has_problems
+
+
+def test_migration_plan_and_migrate(tmp_path):
+    """Moving to 26.4: Sodium has a version, Lithium does not and is disabled, local.jar is unknown."""
+    mods_dir = make_mods_folder(tmp_path)
+    (mods_dir / "lithium-old.jar.disabled").rename(mods_dir / "lithium-old.jar")
+    client = fake_modrinth()
+    del client.latest[sha(b"lithium-old")]
+    plan = core.plan_migration(client, str(mods_dir), core.AUTO, "26.4", False)
+    assert [m.display_name for m in plan.ready] == ["Sodium"]
+    assert [m.display_name for m in plan.missing] == ["Lithium"]
+    assert [m.filename for m in plan.unknown] == ["local.jar"]
+    assert client.latest_calls[0] == (("fabric",), ("26.4",))
+    backup_dir, failed = core.migrate(client, plan, str(mods_dir), True, True, NO_PROGRESS)
+    assert failed == [] and backup_dir
+    assert sorted(os.listdir(mods_dir)) == ["lithium-old.jar.disabled", "local.jar", "sodium-0.9.jar"]

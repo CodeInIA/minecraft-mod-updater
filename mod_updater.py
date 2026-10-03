@@ -16,7 +16,15 @@ import customtkinter as ctk
 import app_updater
 import i18n
 import updater_core as core
-from dialogs import BackupsDialog, ChangelogDialog, ImportDialog, ProfileDialog, SettingsDialog, VersionPickerDialog  # noqa: F401
+from dialogs import (  # noqa: F401
+    BackupsDialog,
+    ChangelogDialog,
+    ImportDialog,
+    MigrationDialog,
+    ProfileDialog,
+    SettingsDialog,
+    VersionPickerDialog,
+)
 from i18n import t
 from mod_icons import IconCache
 from mod_table import ModTableMixin
@@ -135,7 +143,7 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
         state = "disabled" if busy else "normal"
         for widget in (self.check_btn, self.add_btn, self.import_btn, self.edit_btn, self.delete_btn,
                        self.backups_btn, self.version_box, self.loader_menu, self.settings_btn,
-                       self.select_all_box):
+                       self.select_all_box, self.migrate_btn):
             widget.configure(state=state)
         self._apply_content_state()
         if busy:
@@ -361,6 +369,10 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
                                        font=ctk.CTkFont(size=14, weight="bold"),
                                        fg_color=ACCENT, hover_color=ACCENT_HOVER, command=self.check_updates)
         self.check_btn.pack(side="right", padx=14)
+        self.migrate_btn = ctk.CTkButton(bar, text=t("migrate_btn"), fg_color="transparent", border_width=1,
+                                         text_color=("gray10", "gray90"), width=110, height=36,
+                                         command=self.show_migration)
+        self.migrate_btn.pack(side="right")
 
         # Summary + search
         summary = ctk.CTkFrame(main, fg_color="transparent")
@@ -742,6 +754,37 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
         backup = self.config_data["backup_mods"]
         self.run_task(lambda: core.update_mods(self.client, selected, profile["path"], backup, self._progress_cb),
                       lambda backup_dir: self._on_update_done(selected, backup_dir))
+
+    def show_migration(self):
+        if self.current_profile() and not self.busy:
+            MigrationDialog(self)
+
+    def migrate_profile(self, plan: core.MigrationPlan, disable_missing: bool):
+        """Move the current profile to another Minecraft version (see MigrationDialog)."""
+        profile = self.current_profile()
+        if not profile or self.busy or not self.confirm_game_closed(profile["path"]):
+            return
+        self._clear_results()
+        self._list_token += 1
+        self._set_busy(True)
+        backup = self.config_data["backup_mods"]
+
+        def done(outcome):
+            backup_dir, failed = outcome
+            self._set_busy(False)
+            profile["game_version"] = plan.target
+            core.save_config(self.config_data)
+            self.refresh_target_bar()
+            if failed:
+                details = "\n".join(f"• {m.display_name}: {m.error}" for m in failed[:15])
+                messagebox.showwarning(core.APP_NAME, t("some_failed", details=details), parent=self)
+            else:
+                messagebox.showinfo(core.APP_NAME, t("migrate_done", version=plan.target,
+                                                     n=len(plan.to_install)), parent=self)
+            self.check_updates()
+
+        self.run_task(lambda: core.migrate(self.client, plan, profile["path"], backup, disable_missing,
+                                           self._progress_cb), done)
 
     def install_version(self, mod: core.ModInfo, version: Dict):
         """Install a version chosen in the version picker and pin the mod to it."""

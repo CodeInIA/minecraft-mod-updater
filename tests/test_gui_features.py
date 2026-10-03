@@ -228,3 +228,42 @@ def test_problems_are_shown_in_the_status_column(app, tmp_path):
     app.mods = [mod]
     app._update_summary()
     assert "Problems: 1" in app.summary_label.cget("text")
+
+
+def test_migration_dialog_and_profile_move(app, tmp_path, monkeypatch):
+    import time
+
+    import mod_updater
+    monkeypatch.setattr(core, "game_running", lambda _folder: False)
+    app.config_data["profiles"] = [{"name": "p", "path": str(tmp_path), "game_version": "26.3", "loader": "fabric",
+                                    "ignored": [], "pinned": {}}]
+    app.config_data["current_profile"] = "p"
+    app.refresh_profiles()
+    ready = core.ModInfo(path=str(tmp_path / "a.jar"), title="A", status=core.STATUS_UPDATE,
+                         current={"version_number": "1"}, latest={"version_number": "2"})
+    missing = core.ModInfo(path=str(tmp_path / "b.jar"), title="B", status=core.STATUS_NO_COMPATIBLE)
+    plan = core.MigrationPlan(target="26.4", loader="fabric", ready=[ready], missing=[missing], unknown=[],
+                              dependencies=[])
+    monkeypatch.setattr(core, "plan_migration", lambda *a: plan)
+    dialog = mod_updater.MigrationDialog(app)
+    dialog.version_var.set("26.4")
+    dialog._check()
+    end = time.time() + 5
+    while time.time() < end and dialog.plan is None:
+        app.update()
+        time.sleep(0.02)
+    assert "1 of 2" in dialog.summary.cget("text")
+    assert dialog.migrate_btn.cget("state") == "normal"
+
+    calls = []
+    monkeypatch.setattr(core, "migrate", lambda client, p, folder, backup, disable, progress:
+                        calls.append((p.target, disable)) or (None, []))
+    monkeypatch.setattr(mod_updater.messagebox, "showinfo", lambda *a, **k: None)
+    monkeypatch.setattr(app, "check_updates", lambda: None)
+    dialog._migrate()
+    end = time.time() + 5
+    while time.time() < end and (not calls or app.busy):
+        app.update()
+        time.sleep(0.02)
+    assert calls == [("26.4", True)]
+    assert app.current_profile()["game_version"] == "26.4"

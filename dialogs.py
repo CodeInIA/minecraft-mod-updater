@@ -3,7 +3,7 @@
 import os
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
 
@@ -313,6 +313,118 @@ class VersionPickerDialog(Dialog):
         if version:
             self.destroy()
             self.app.install_version(self.mod, version)
+
+
+class MigrationDialog(Dialog):
+    """Check which mods are ready for another Minecraft version and move the profile to it."""
+
+    def __init__(self, app: "App"):
+        super().__init__(app, t("migrate_title"), 660, 600)
+        self.app = app
+        profile = app.current_profile() or {}
+        self.profile = profile
+        self.plan: Optional[core.MigrationPlan] = None
+        ctk.CTkLabel(self, text=t("migrate_title"), font=ctk.CTkFont(size=20, weight="bold"),
+                     anchor="w").pack(fill="x", padx=22, pady=(18, 2))
+        ctk.CTkLabel(self, text=t("migrate_hint"), text_color=MUTED, wraplength=610, justify="left",
+                     anchor="w").pack(fill="x", padx=22)
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=22, pady=(12, 0))
+        ctk.CTkLabel(row, text="Minecraft").pack(side="left", padx=(0, 8))
+        versions = [v for v in app.version_choices() if v != t("auto")]
+        current = profile.get("game_version", core.AUTO)
+        self.version_var = tk.StringVar(value=versions[0] if versions else "")
+        self.version_box = ctk.CTkComboBox(row, variable=self.version_var, values=versions, width=160)
+        self.version_box.pack(side="left")
+        self.check_btn = ctk.CTkButton(row, text=t("migrate_check"), width=120, command=self._check)
+        self.check_btn.pack(side="left", padx=8)
+        if current != core.AUTO:
+            ctk.CTkLabel(row, text=t("migrate_current", version=current), text_color=MUTED).pack(side="left", padx=8)
+        self.list = ctk.CTkScrollableFrame(self, fg_color=CARD_BG, corner_radius=10)
+        self.list.pack(fill="both", expand=True, padx=22, pady=12)
+        self.summary = ctk.CTkLabel(self, text="", anchor="w", justify="left", wraplength=610)
+        self.summary.pack(fill="x", padx=22)
+        self.disable_var = tk.BooleanVar(value=True)
+        self.disable_switch = ctk.CTkSwitch(self, text=t("migrate_disable_missing"), variable=self.disable_var,
+                                            progress_color=ACCENT, state="disabled")
+        self.disable_switch.pack(anchor="w", padx=22, pady=(8, 0))
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.pack(fill="x", padx=22, pady=(10, 18))
+        self.migrate_btn = ctk.CTkButton(buttons, text=t("migrate_go", version="…"), fg_color=ACCENT,
+                                         hover_color=ACCENT_HOVER, state="disabled", command=self._migrate)
+        self.migrate_btn.pack(side="right")
+        ctk.CTkButton(buttons, text=t("cancel"), fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"), command=self.destroy).pack(side="right", padx=8)
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self._message(t("migrate_pick"))
+
+    def _message(self, text: str):
+        for child in self.list.winfo_children():
+            child.destroy()
+        ctk.CTkLabel(self.list, text=text, text_color=MUTED, wraplength=560, justify="left").pack(
+            padx=12, pady=16, anchor="w")
+
+    def _check(self):
+        target = self.version_var.get().strip()
+        if not target or self.app.busy:
+            return
+        self.plan = None
+        self.check_btn.configure(state="disabled")
+        self.migrate_btn.configure(state="disabled", text=t("migrate_go", version=target))
+        self.summary.configure(text="")
+        self._message(t("migrate_checking", version=target))
+        profile = self.profile
+        allow_beta = self.app.config_data["allow_beta"]
+        self.app.run_task(
+            lambda: core.plan_migration(self.app.client, profile["path"], profile.get("loader", core.AUTO), target,
+                                        allow_beta, profile.get("content", core.CONTENT_MODS)),
+            self._show, self._failed)
+
+    def _failed(self, err: Exception):
+        if self.winfo_exists():
+            self.check_btn.configure(state="normal")
+            self._message(str(err))
+
+    def _show(self, plan: core.MigrationPlan):
+        if not self.winfo_exists():
+            return
+        self.plan = plan
+        self.check_btn.configure(state="normal")
+        for child in self.list.winfo_children():
+            child.destroy()
+        rows: List[Tuple[str, str, Any]] = []
+        for mod in sorted(plan.missing, key=lambda m: m.display_name.lower()):
+            rows.append(("✖  " + mod.display_name, t("migrate_not_ready"), DANGER))
+        for mod in sorted(plan.dependencies, key=lambda m: m.display_name.lower()):
+            rows.append(("＋  " + mod.display_name, t("migrate_dependency", version=mod.latest_version), ACCENT))
+        for mod in sorted(plan.ready, key=lambda m: m.display_name.lower()):
+            detail = (f"{mod.current_version}  →  {mod.latest_version}" if mod.status == core.STATUS_UPDATE
+                      else t("migrate_compatible"))
+            rows.append(("✔  " + mod.display_name, detail, ACCENT))
+        for mod in sorted(plan.unknown, key=lambda m: m.display_name.lower()):
+            rows.append(("?  " + mod.display_name, t("migrate_unknown"), MUTED))
+        if not rows:
+            self._message(t("no_files"))
+        for name, detail, color in rows:
+            line = ctk.CTkFrame(self.list, fg_color="transparent")
+            line.pack(fill="x", padx=8, pady=2)
+            ctk.CTkLabel(line, text=name, anchor="w", text_color=color).pack(side="left")
+            ctk.CTkLabel(line, text=detail, anchor="e", text_color=MUTED).pack(side="right")
+        total = len(plan.ready) + len(plan.missing)
+        text = t("migrate_summary", ready=len(plan.ready), total=total, version=plan.target)
+        if plan.missing:
+            text += "\n" + t("migrate_missing_note", n=len(plan.missing))
+        self.summary.configure(text=text, text_color=DANGER if plan.missing else ACCENT)
+        self.disable_switch.configure(state="normal" if plan.missing else "disabled")
+        self.migrate_btn.configure(state="normal" if plan.ready or plan.dependencies else "disabled",
+                                   text=t("migrate_go", version=plan.target))
+
+    def _migrate(self):
+        if not self.plan:
+            return
+        plan, disable = self.plan, bool(self.disable_var.get()) and bool(self.plan.missing)
+        self.destroy()
+        self.app.migrate_profile(plan, disable)
 
 
 class BackupsDialog(Dialog):

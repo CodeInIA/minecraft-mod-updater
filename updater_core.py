@@ -970,6 +970,60 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
     return result
 
 
+@dataclass
+class MigrationPlan:
+    """What moving a profile to another Minecraft version involves."""
+    target: str
+    loader: Optional[str]
+    ready: List[ModInfo]         # have a version for the target (to update, or already compatible)
+    missing: List[ModInfo]       # no version for the target yet
+    unknown: List[ModInfo]       # not on Modrinth: cannot tell
+    dependencies: List[ModInfo]  # required by the new versions and not installed
+
+    @property
+    def to_install(self) -> List[ModInfo]:
+        return [m for m in self.ready if m.status == STATUS_UPDATE] + self.dependencies
+
+
+def plan_migration(client: ModrinthClient, mod_folder: str, loader: str, target: str, allow_beta: bool,
+                   content: str = CONTENT_MODS) -> MigrationPlan:
+    """Check which files of a folder have a version for another Minecraft version.
+
+    Pinned and ignored mods are included: a version for the old Minecraft
+    version would not work with the new one.
+    """
+    result = scan_mods(client, mod_folder, target, loader, allow_beta, lambda _f, _m: None, content=content)
+    by_status: Dict[str, List[ModInfo]] = {}
+    for mod in result.mods:
+        by_status.setdefault(mod.status, []).append(mod)
+    ready = by_status.get(STATUS_UPDATE, []) + by_status.get(STATUS_UP_TO_DATE, [])
+    log.info("migration of %s to %s: %d ready, %d missing", mod_folder, target, len(ready),
+             len(by_status.get(STATUS_NO_COMPATIBLE, [])))
+    return MigrationPlan(target=target, loader=result.loader, ready=ready,
+                         missing=by_status.get(STATUS_NO_COMPATIBLE, []),
+                         unknown=by_status.get(STATUS_NOT_FOUND, []),
+                         dependencies=by_status.get(STATUS_MISSING_DEP, []))
+
+
+def migrate(client: ModrinthClient, plan: MigrationPlan, mod_folder: str, backup: bool, disable_missing: bool,
+            progress: ProgressFn) -> Tuple[Optional[str], List[ModInfo]]:
+    """Install the versions for the plan's target; optionally disable the mods without one.
+
+    Returns the backup folder and the mods whose update failed.
+    """
+    backup_dir = update_mods(client, plan.to_install, mod_folder, backup, progress)
+    failed = [m for m in plan.to_install if m.status == STATUS_FAILED]
+    if disable_missing:
+        for mod in plan.missing:
+            if not mod.disabled:
+                try:
+                    set_enabled(mod, False)
+                except OSError as e:
+                    mod.status, mod.error = STATUS_FAILED, str(e)
+                    failed.append(mod)
+    return backup_dir, failed
+
+
 def find_problems(mods: List[ModInfo]) -> None:
     """Mark mods installed more than once (different files of one project) and incompatible mods.
 

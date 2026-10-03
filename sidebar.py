@@ -37,6 +37,7 @@ class ProfileListMixin:
     delete_btn: ctk.CTkButton
     check_btn: ctk.CTkButton
     backups_btn: ctk.CTkButton
+    migrate_btn: ctk.CTkButton
     _drag: Optional[Dict[str, Any]]
     _drop_slot: Optional[ctk.CTkFrame]
     _anim_job: Optional[str]
@@ -72,7 +73,7 @@ class ProfileListMixin:
             self.profile_swatch.pack_forget()
         self.profile_title.configure(text=current["name"] if has_profile else t("no_profiles"))
         self.profile_path.configure(text=shorten_path(current["path"]) if has_profile else t("create_profile_hint"))
-        for w in (self.edit_btn, self.delete_btn, self.check_btn, self.backups_btn):
+        for w in (self.edit_btn, self.delete_btn, self.check_btn, self.backups_btn, self.migrate_btn):
             w.configure(state="normal" if has_profile else "disabled")
         self.refresh_target_bar()
 
