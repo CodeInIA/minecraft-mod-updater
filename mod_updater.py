@@ -702,6 +702,14 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
             self.run_task(lambda: self.icons.download(missing), lambda _r: self._refresh_row_images(),
                           lambda _e: None)
 
+    def confirm_game_closed(self, folder: str, parent: Optional[tk.Misc] = None) -> bool:
+        """Ask to close Minecraft while it runs with this folder. False if the user gives up."""
+        while core.game_running(folder):
+            if not messagebox.askretrycancel(t("game_running_title"), t("game_running"), icon="warning",
+                                             parent=parent or self):
+                return False
+        return True
+
     def _show_scan_status(self, result: core.ScanResult):
         mods = result.mods
         is_mods = result.content == core.CONTENT_MODS
@@ -722,7 +730,7 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
     def update_selected(self):
         profile = self.current_profile()
         selected = [m for m in self.mods if m.path in self.checked and m.actionable]
-        if not profile or not selected or self.busy:
+        if not profile or not selected or self.busy or not self.confirm_game_closed(profile["path"]):
             return
         self._set_busy(True)
         self.progress.set(0)

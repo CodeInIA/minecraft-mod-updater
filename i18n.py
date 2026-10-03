@@ -202,6 +202,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "Previous / next profile",
         "sc_help": "Show this list",
         "open_log": "Open log",
+        "game_running_title": "Minecraft is open",
+        "game_running": "Minecraft (or a server) is running with this folder. Close it before changing its files: files in use cannot be replaced, and the game would not notice the changes until it restarts.\n\nClose the game and press Retry.",
     },
     "es": {
         "app_subtitle": "para Minecraft",
@@ -373,6 +375,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "Perfil anterior / siguiente",
         "sc_help": "Mostrar esta lista",
         "open_log": "Abrir registro",
+        "game_running_title": "Minecraft está abierto",
+        "game_running": "Minecraft (o un servidor) está en marcha con esta carpeta. Ciérralo antes de cambiar sus archivos: los archivos en uso no se pueden sustituir y el juego no vería los cambios hasta reiniciarse.\n\nCierra el juego y pulsa Reintentar.",
     },
     "pt": {
         "app_subtitle": "para Minecraft",
@@ -544,6 +548,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "Perfil anterior / seguinte",
         "sc_help": "Mostrar esta lista",
         "open_log": "Abrir registo",
+        "game_running_title": "O Minecraft está aberto",
+        "game_running": "O Minecraft (ou um servidor) está em execução com esta pasta. Feche-o antes de alterar os seus arquivos: arquivos em uso não podem ser substituídos e o jogo só notaria as mudanças ao reiniciar.\n\nFeche o jogo e clique em Tentar novamente.",
     },
     "fr": {
         "app_subtitle": "pour Minecraft",
@@ -715,6 +721,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "Profil précédent / suivant",
         "sc_help": "Afficher cette liste",
         "open_log": "Ouvrir le journal",
+        "game_running_title": "Minecraft est ouvert",
+        "game_running": "Minecraft (ou un serveur) est lancé avec ce dossier. Fermez-le avant de modifier ses fichiers : les fichiers utilisés ne peuvent pas être remplacés et le jeu ne verrait les changements qu'après un redémarrage.\n\nFermez le jeu et cliquez sur Réessayer.",
     },
     "de": {
         "app_subtitle": "für Minecraft",
@@ -886,6 +894,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "Vorheriges / nächstes Profil",
         "sc_help": "Diese Liste anzeigen",
         "open_log": "Protokoll öffnen",
+        "game_running_title": "Minecraft ist geöffnet",
+        "game_running": "Minecraft (oder ein Server) läuft mit diesem Ordner. Schließe es, bevor du seine Dateien änderst: Dateien in Verwendung können nicht ersetzt werden, und das Spiel würde die Änderungen erst nach einem Neustart bemerken.\n\nSchließe das Spiel und klicke auf Wiederholen.",
     },
     "it": {
         "app_subtitle": "per Minecraft",
@@ -1057,6 +1067,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "Profilo precedente / successivo",
         "sc_help": "Mostra questo elenco",
         "open_log": "Apri registro",
+        "game_running_title": "Minecraft è aperto",
+        "game_running": "Minecraft (o un server) è in esecuzione con questa cartella. Chiudilo prima di modificarne i file: i file in uso non possono essere sostituiti e il gioco vedrebbe le modifiche solo dopo il riavvio.\n\nChiudi il gioco e premi Riprova.",
     },
     "nl": {
         "app_subtitle": "voor Minecraft",
@@ -1228,6 +1240,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "Vorig / volgend profiel",
         "sc_help": "Deze lijst tonen",
         "open_log": "Logboek openen",
+        "game_running_title": "Minecraft is geopend",
+        "game_running": "Minecraft (of een server) draait met deze map. Sluit het voordat je de bestanden wijzigt: bestanden die in gebruik zijn kunnen niet worden vervangen en het spel ziet de wijzigingen pas na een herstart.\n\nSluit het spel en klik op Opnieuw.",
     },
     "pl": {
         "app_subtitle": "dla Minecrafta",
@@ -1399,6 +1413,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "Poprzedni / następny profil",
         "sc_help": "Pokaż tę listę",
         "open_log": "Otwórz dziennik",
+        "game_running_title": "Minecraft jest uruchomiony",
+        "game_running": "Minecraft (lub serwer) działa z tym folderem. Zamknij go przed zmianą plików: plików w użyciu nie można zastąpić, a gra zauważy zmiany dopiero po ponownym uruchomieniu.\n\nZamknij grę i kliknij Ponów.",
     },
     "ru": {
         "app_subtitle": "для Minecraft",
@@ -1570,6 +1586,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "Предыдущий / следующий профиль",
         "sc_help": "Показать этот список",
         "open_log": "Открыть журнал",
+        "game_running_title": "Minecraft запущен",
+        "game_running": "Minecraft (или сервер) запущен с этой папкой. Закройте его перед изменением файлов: используемые файлы нельзя заменить, а игра увидит изменения только после перезапуска.\n\nЗакройте игру и нажмите «Повторить».",
     },
     "uk": {
         "app_subtitle": "для Minecraft",
@@ -1741,6 +1759,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "Попередній / наступний профіль",
         "sc_help": "Показати цей список",
         "open_log": "Відкрити журнал",
+        "game_running_title": "Minecraft запущено",
+        "game_running": "Minecraft (або сервер) запущено з цією текою. Закрийте його перед зміною файлів: файли, що використовуються, не можна замінити, а гра побачить зміни лише після перезапуску.\n\nЗакрийте гру й натисніть «Повторити».",
     },
     "tr": {
         "app_subtitle": "Minecraft için",
@@ -1912,6 +1932,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "Önceki / sonraki profil",
         "sc_help": "Bu listeyi göster",
         "open_log": "Günlüğü aç",
+        "game_running_title": "Minecraft açık",
+        "game_running": "Minecraft (veya bir sunucu) bu klasörle çalışıyor. Dosyalarını değiştirmeden önce kapatın: kullanımdaki dosyalar değiştirilemez ve oyun değişiklikleri ancak yeniden başlatınca görür.\n\nOyunu kapatın ve Yeniden dene'ye basın.",
     },
     "ja": {
         "app_subtitle": "Minecraft 用",
@@ -2083,6 +2105,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "前 / 次のプロファイル",
         "sc_help": "この一覧を表示",
         "open_log": "ログを開く",
+        "game_running_title": "Minecraft が起動中です",
+        "game_running": "このフォルダーで Minecraft（またはサーバー）が実行中です。ファイルを変更する前に終了してください。使用中のファイルは置き換えられず、ゲームは再起動するまで変更を認識しません。\n\nゲームを終了して「再試行」を押してください。",
     },
     "ko": {
         "app_subtitle": "Minecraft용",
@@ -2254,6 +2278,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "이전 / 다음 프로필",
         "sc_help": "이 목록 표시",
         "open_log": "로그 열기",
+        "game_running_title": "Minecraft가 실행 중입니다",
+        "game_running": "이 폴더로 Minecraft(또는 서버)가 실행 중입니다. 파일을 변경하기 전에 종료하세요. 사용 중인 파일은 교체할 수 없으며, 게임은 다시 시작해야 변경 사항을 인식합니다.\n\n게임을 종료하고 '다시 시도'를 누르세요.",
     },
     "zh": {
         "app_subtitle": "适用于 Minecraft",
@@ -2425,6 +2451,8 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "sc_switch_profile": "上一个 / 下一个配置",
         "sc_help": "显示此列表",
         "open_log": "打开日志",
+        "game_running_title": "Minecraft 正在运行",
+        "game_running": "Minecraft（或服务器）正在使用此文件夹运行。修改文件前请先关闭：正在使用的文件无法替换，游戏也要重启后才能看到更改。\n\n请关闭游戏后点击“重试”。",
     },
 }
 

@@ -110,3 +110,20 @@ def test_log_file_is_written():
             handler.close()
             core.log.removeHandler(handler)
         core.log.setLevel(logging.NOTSET)
+
+
+def test_detects_minecraft_running_with_the_folder(tmp_path, monkeypatch):
+    game = tmp_path / ".minecraft"
+    mods = game / "mods"
+    mods.mkdir(parents=True)
+    other = tmp_path / "other-instance"
+    launcher = [("java -Xmx4G net.minecraft.client.main.Main --gameDir " + str(game) + " --version 26.3", "C:\\")]
+    prism = [("java -cp NewLaunch.jar org.prismlauncher.EntryPoint", str(game))]
+    unrelated = [("java -jar some-tool.jar", str(other))]
+    for processes, running in ((launcher, True), (prism, True), (unrelated, False), ([], False)):
+        monkeypatch.setattr(core, "_java_processes", lambda p=processes: iter(p))
+        assert core.game_running(str(mods)) is running
+
+
+def test_process_listing_works():
+    assert isinstance(list(core._java_processes()), list)  # no errors on this system

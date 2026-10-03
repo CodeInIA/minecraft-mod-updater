@@ -151,3 +151,16 @@ def test_switching_profiles_with_the_keyboard(app, tmp_path):
     assert app.config_data["current_profile"] == "two"
     app._switch_profile(1)
     assert app.config_data["current_profile"] == "one"  # wraps around
+
+
+def test_update_waits_until_the_game_is_closed(app, tmp_path, monkeypatch):
+    import mod_updater
+    running = [True, True, False]
+    monkeypatch.setattr(core, "game_running", lambda _folder: running.pop(0))
+    asked = []
+    monkeypatch.setattr(mod_updater.messagebox, "askretrycancel", lambda *a, **k: asked.append(1) or True)
+    assert app.confirm_game_closed(str(tmp_path)) is True
+    assert len(asked) == 2  # asked again until the game was closed
+    monkeypatch.setattr(core, "game_running", lambda _folder: True)
+    monkeypatch.setattr(mod_updater.messagebox, "askretrycancel", lambda *a, **k: False)
+    assert app.confirm_game_closed(str(tmp_path)) is False  # the user cancelled

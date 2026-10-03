@@ -307,6 +307,8 @@ class BackupsDialog(Dialog):
         if self.app.busy or not messagebox.askyesno(
                 t("backups_title"), t("restore_confirm", date=when, n=len(backup.entries)), parent=self):
             return
+        if not self.app.confirm_game_closed(self.folder, parent=self):
+            return
         errors = core.restore_backup(backup)
         self.app.show_local_mods(status=None if errors else t("restore_done", n=len(backup.entries)))
         if errors:

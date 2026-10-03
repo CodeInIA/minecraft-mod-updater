@@ -1019,6 +1019,36 @@ def detect_target(client: ModrinthClient, mod_folder: str, content: str = CONTEN
     return detect_from_versions(client.versions_from_hashes(list(by_hash.keys())).values())
 
 
+def _java_processes() -> Iterable[Tuple[str, str]]:
+    """(command line, working folder) of every running Java process."""
+    try:
+        import psutil
+    except ImportError:
+        return
+    for process in psutil.process_iter(["name"]):
+        try:
+            if "java" not in (process.info.get("name") or "").lower():
+                continue
+            yield " ".join(process.cmdline()), process.cwd()
+        except (psutil.Error, OSError):
+            continue
+
+
+def game_running(mod_folder: str) -> bool:
+    """Whether Minecraft (or a Minecraft server) is running with this folder.
+
+    The game folder is the parent of the mods/resourcepacks/... folder: the
+    launcher passes it as --gameDir, and Prism, MultiMC and servers run in it.
+    """
+    game_dir = os.path.normcase(os.path.abspath(os.path.dirname(os.path.abspath(mod_folder))))
+    for command, cwd in _java_processes():
+        if (game_dir in os.path.normcase(command)
+                or (cwd and os.path.normcase(os.path.abspath(cwd)) == game_dir)):
+            log.info("Minecraft is running with %s", game_dir)
+            return True
+    return False
+
+
 def backup_root(mod_folder: str) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(mod_folder)), "mod_updater_backups")
 
