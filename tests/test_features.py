@@ -194,3 +194,30 @@ def test_updated_files_are_listed_with_their_names(tmp_path):
     core.update_mods(client, [m for m in result.mods if m.actionable], str(mods_dir), False, NO_PROGRESS)
     listed = {m.filename: m.display_name for m in core.list_local_mods(str(mods_dir))}
     assert listed["sodium-0.9.jar"] == "Sodium"
+
+
+def test_mods_are_disabled_and_enabled_by_renaming(tmp_path):
+    folder = tmp_path / "mods"
+    folder.mkdir()
+    (folder / "a.jar").write_bytes(b"a")
+    (folder / "a-copy.jar").write_bytes(b"a")
+    mod = core.ModInfo(path=str(folder / "a.jar"), duplicates=[str(folder / "a-copy.jar")])
+    core.set_enabled(mod, False)
+    assert mod.disabled and sorted(os.listdir(folder)) == ["a-copy.jar.disabled", "a.jar.disabled"]
+    core.set_enabled(mod, True)
+    assert not mod.disabled and sorted(os.listdir(folder)) == ["a-copy.jar", "a.jar"]
+
+
+def test_disabling_never_overwrites_a_file(tmp_path):
+    folder = tmp_path / "mods"
+    folder.mkdir()
+    (folder / "a.jar").write_bytes(b"new")
+    (folder / "a.jar.disabled").write_bytes(b"old")
+    mod = core.ModInfo(path=str(folder / "a.jar"))
+    try:
+        core.set_enabled(mod, False)
+        raise AssertionError("expected an error")
+    except OSError:
+        pass
+    assert (folder / "a.jar").read_bytes() == b"new" and (folder / "a.jar.disabled").read_bytes() == b"old"
+    assert mod.path == str(folder / "a.jar")

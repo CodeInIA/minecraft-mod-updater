@@ -4,7 +4,7 @@ import os
 import tkinter as tk
 import webbrowser
 from tkinter import font as tkfont
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, cast
 
 import customtkinter as ctk
@@ -46,6 +46,7 @@ class ModTableMixin:
     _tooltip_label: tk.Label
     _tree_font: tkfont.Font
     current_profile: Callable[[], Optional[Dict[str, Any]]]
+    confirm_game_closed: Callable[..., bool]
 
     def _clear_results(self):
         self.mods = []
@@ -186,10 +187,30 @@ class ModTableMixin:
             ignored = mod.status == core.STATUS_IGNORED
             menu.add_command(label=t("menu_unignore") if ignored else t("menu_ignore"),
                              command=lambda: self.set_ignored(mod, not ignored))
+        if os.path.exists(mod.path) and not self.busy:
+            menu.add_command(label=t("menu_enable") if mod.disabled else t("menu_disable"),
+                             command=lambda: self.set_enabled(mod, mod.disabled))
         if os.path.exists(mod.path):
             menu.add_command(label=t("menu_show_file"), command=lambda: open_folder(os.path.dirname(mod.path)))
         if menu.index("end") is not None:
             menu.tk_popup(event.x_root, event.y_root)
+
+    def set_enabled(self, mod: core.ModInfo, enabled: bool):
+        """Enable or disable a mod: the game skips files that end in .disabled."""
+        if self.busy or not self.confirm_game_closed(os.path.dirname(mod.path)):
+            return
+        old_path = mod.path
+        try:
+            core.set_enabled(mod, enabled)
+        except OSError as e:
+            messagebox.showerror(t("menu_enable") if enabled else t("menu_disable"),
+                                 t("toggle_failed", file=os.path.basename(old_path), error=e.strerror or e))
+            return
+        if old_path in self.checked:
+            self.checked.discard(old_path)
+            self.checked.add(mod.path)
+        self._fill_tree()
+        self.status_label.configure(text=t("mod_enabled" if enabled else "mod_disabled", mod=mod.display_name))
 
     def _on_tree_double_click(self, event):
         mod, area = self._hit_area(event)

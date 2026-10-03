@@ -164,3 +164,18 @@ def test_update_waits_until_the_game_is_closed(app, tmp_path, monkeypatch):
     monkeypatch.setattr(core, "game_running", lambda _folder: True)
     monkeypatch.setattr(mod_updater.messagebox, "askretrycancel", lambda *a, **k: False)
     assert app.confirm_game_closed(str(tmp_path)) is False  # the user cancelled
+
+
+def test_disable_a_mod_from_the_table(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(core, "game_running", lambda _folder: False)
+    jar = tmp_path / "sodium.jar"
+    jar.write_bytes(b"x")
+    mod = core.ModInfo(path=str(jar), title="Sodium", status=core.STATUS_UP_TO_DATE)
+    app.mods = [mod]
+    app._fill_tree()
+    app.set_enabled(mod, False)
+    assert (tmp_path / "sodium.jar.disabled").exists()
+    assert app.tree.get_children() == (str(jar) + ".disabled",)
+    assert "Disabled" in app.tree.item(str(jar) + ".disabled", "text") or mod.disabled
+    app.set_enabled(mod, True)
+    assert jar.exists() and not mod.disabled

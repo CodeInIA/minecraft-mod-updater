@@ -7,6 +7,7 @@ strings, so it works with any versioning scheme: old ones like 1.21.5 and the
 new year-based ones like 26.3 or 26.4-snapshot-1.
 """
 
+import errno
 import hashlib
 import json
 import logging
@@ -1017,6 +1018,34 @@ def detect_target(client: ModrinthClient, mod_folder: str, content: str = CONTEN
     if not by_hash:
         return {}
     return detect_from_versions(client.versions_from_hashes(list(by_hash.keys())).values())
+
+
+DISABLED_SUFFIX = ".disabled"
+
+
+def set_enabled(mod: ModInfo, enabled: bool) -> None:
+    """Enable or disable a mod (and its duplicates) by renaming x.jar <-> x.jar.disabled.
+
+    Every launcher skips files ending in .disabled. Raises OSError if a file
+    cannot be renamed (for example while the game uses it).
+    """
+    if mod.disabled != enabled:
+        return
+    done: List[Tuple[str, str]] = []
+    try:
+        for old in [mod.path] + mod.duplicates:
+            new = old[:-len(DISABLED_SUFFIX)] if enabled else old + DISABLED_SUFFIX
+            if os.path.exists(new):
+                raise FileExistsError(errno.EEXIST, t("err_file_exists"), new)
+            os.rename(old, new)
+            done.append((old, new))
+    except OSError:
+        for old, new in reversed(done):  # leave everything as it was
+            os.rename(new, old)
+        raise
+    mod.path = done[0][1]
+    mod.duplicates = [new for _old, new in done[1:]]
+    log.info("%s %s", "enabled" if enabled else "disabled", mod.display_name)
 
 
 def _java_processes() -> Iterable[Tuple[str, str]]:
