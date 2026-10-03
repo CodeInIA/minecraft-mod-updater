@@ -633,6 +633,7 @@ class App(ctk.CTk):
         set_window_icon(self)
 
         self.client = core.ModrinthClient()
+        self.offline = offline
         self.tags = core.load_tag_cache()
         self.mods: List[core.ModInfo] = []
         self.last_scan: Optional[core.ScanResult] = None
@@ -1452,8 +1453,9 @@ class App(ctk.CTk):
     def show_local_mods(self, status: Optional[str] = None):
         """List the files of the current profile right away, without going online.
 
-        Names, icons and versions come from earlier checks; the status says they
-        have not been checked yet. "Check for updates" replaces this list.
+        Names, icons and versions come from earlier checks; files never seen are
+        then identified on Modrinth. The status says they have not been checked
+        for updates yet. "Check for updates" replaces this list.
         """
         self._clear_results()
         self._list_token += 1
@@ -1480,6 +1482,20 @@ class App(ctk.CTk):
             self.status_label.configure(text=t("local_listed", n=len(mods)))
         else:
             self.status_label.configure(text=t("no_jars") if content == core.CONTENT_MODS else t("no_files"))
+        self._load_local_icons(mods)
+        if not self.offline and any(m.sha512 and not m.current for m in mods):
+            # First time these files are seen: ask Modrinth what they are (not whether they are outdated)
+            self.run_task(lambda: core.identify_local_mods(self.client, mods),
+                          lambda found: self._on_local_identified(token, found), lambda _e: None)
+
+    def _on_local_identified(self, token: int, mods: List[core.ModInfo]):
+        if token != self._list_token or self.busy or self.last_scan:
+            return
+        self.mods = mods
+        self._fill_tree()
+        self._load_local_icons(mods)
+
+    def _load_local_icons(self, mods: List[core.ModInfo]):
         missing = self.icons.missing(m.icon_url for m in mods)
         if missing:
             self.run_task(lambda: self.icons.download(missing), lambda _r: self._refresh_row_images(),

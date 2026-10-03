@@ -524,6 +524,34 @@ def list_local_mods(mod_folder: str, content: str = CONTENT_MODS) -> List[ModInf
     return sorted(mods, key=lambda m: m.display_name.lower())
 
 
+def identify_local_mods(client: ModrinthClient, mods: List[ModInfo]) -> List[ModInfo]:
+    """Fill in the name, icon, page and installed version of listed files never seen before.
+
+    Only asks Modrinth which version each file is (no update check), so the
+    list looks complete the first time a profile is opened.
+    """
+    unknown = {m.sha512: m for m in mods if m.sha512 and not m.current}
+    if not unknown:
+        return mods
+    current = client.versions_from_hashes(list(unknown))
+    project_ids = [v["project_id"] for v in current.values() if v.get("project_id")]
+    try:
+        projects = client.projects(project_ids) if project_ids else {}
+    except ModrinthError:
+        projects = {}
+    for h, version in current.items():
+        mod = unknown.get(h)
+        if not mod:
+            continue
+        project = projects.get(version.get("project_id"), {})
+        mod.current = version
+        mod.title = project.get("title", "")
+        mod.icon_url = project.get("icon_url") or ""
+        mod.page_url = modrinth_page_url(project, version.get("project_id", ""))
+    _remember_mod_info(unknown.values())
+    return sorted(mods, key=lambda m: m.display_name.lower())
+
+
 def _save_hash_cache(cache: Dict[str, Dict]) -> None:
     try:
         os.makedirs(CONFIG_DIR, exist_ok=True)

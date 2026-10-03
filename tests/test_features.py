@@ -170,6 +170,22 @@ def test_local_listing_before_and_after_a_check(tmp_path):
     assert {m.status for m in after.values()} == {core.STATUS_UNCHECKED}
 
 
+def test_first_listing_identifies_files_without_checking_updates(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    client = fake_modrinth()
+    listed = core.identify_local_mods(client, core.list_local_mods(str(mods_dir)))
+    by_name = {m.filename: m for m in listed}
+    assert by_name["sodium-old.jar"].display_name == "Sodium"
+    assert by_name["sodium-old.jar"].icon_url == "https://cdn.example/sodium.png"
+    assert by_name["sodium-old.jar"].current_version == "1.0"
+    assert by_name["local.jar"].display_name == "local.jar"
+    assert {m.status for m in listed} == {core.STATUS_UNCHECKED} and not any(m.actionable for m in listed)
+    assert client.latest_calls == []  # no update check
+    # remembered: the next listing needs no network
+    again = {m.filename: m for m in core.list_local_mods(str(mods_dir))}
+    assert again["sodium-old.jar"].display_name == "Sodium"
+
+
 def test_updated_files_are_listed_with_their_names(tmp_path):
     mods_dir = make_mods_folder(tmp_path)
     client = fake_modrinth()
