@@ -1,10 +1,10 @@
 """Window behaviour of dependencies, ignored mods, changelogs, backups, launcher import and content types."""
 
 import pytest
+from test_gui import app, window  # noqa: F401 - shared window fixtures
 
 import launchers
 import updater_core as core
-from test_gui import app, window  # noqa: F401 - shared window fixtures
 
 pytestmark = pytest.mark.gui
 

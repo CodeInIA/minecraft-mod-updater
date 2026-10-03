@@ -97,7 +97,7 @@ jobs:
             exit 0
           fi
           # Files that do not end up in the app: documentation, tests and CI.
-          not_app='(\.md$|^docs/|^tests/|^\.github/|^\.gitignore$|^requirements-dev\.txt$)'
+          not_app='(\.md$|^docs/|^tests/|^\.github/|^\.gitignore$|^requirements-dev\.txt$|^pyproject\.toml$)'
           app_changes=$(git diff --name-only "v$LATEST" HEAD | grep -Ev "$not_app" || true)
           if [ -n "$app_changes" ]; then
             echo "release=true" >> "$GITHUB_OUTPUT"

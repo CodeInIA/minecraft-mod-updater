@@ -5,9 +5,9 @@ import json
 import zipfile
 
 from PIL import Image
+from test_core import FakeClient, file_entry, version
 
 import updater_core as core
-from test_core import FakeClient, file_entry, version
 
 NO_PROGRESS = lambda f, m: None  # noqa: E731
 

@@ -3,8 +3,9 @@
 import json
 import os
 
-import updater_core as core
 from test_core import FakeClient, fake_modrinth, file_entry, make_mods_folder, sha, version
+
+import updater_core as core
 
 NO_PROGRESS = lambda f, m: None  # noqa: E731
 

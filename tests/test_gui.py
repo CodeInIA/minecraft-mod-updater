@@ -109,7 +109,7 @@ def test_click_on_name_opens_modrinth_and_checkbox_toggles(app, tmp_path, monkey
 
 def test_profiles_can_be_reordered(app):
     app.config_data["profiles"] = [{"name": n, "path": "x", "game_version": core.AUTO, "loader": core.AUTO,
-                                    "color": c} for n, c in zip("abc", core.PROFILE_COLORS)]
+                                    "color": c} for n, c in zip("abc", core.PROFILE_COLORS, strict=False)]
     app.config_data["current_profile"] = "a"
     app.refresh_profiles()
     app.move_profile(0, 2)
@@ -151,6 +151,7 @@ def test_sidebar_width_follows_longest_name(app):
 
 def test_dragging_a_profile_reorders_and_animates_into_place(app):
     import time
+
     import mod_updater
     base = {"path": "x", "game_version": core.AUTO, "loader": core.AUTO, "color": core.PROFILE_COLORS[0]}
     app.config_data["profiles"] = [dict(base, name=n) for n in ("a", "b", "c", "d")]
@@ -177,6 +178,7 @@ def test_dragging_a_profile_reorders_and_animates_into_place(app):
 @pytest.mark.parametrize("from_top", [True, False])
 def test_dragging_past_the_edge_does_not_move_a_list_that_fits(app, from_top):
     import time
+
     import mod_updater
     base = {"path": "x", "game_version": core.AUTO, "loader": core.AUTO, "color": core.PROFILE_COLORS[0]}
     app.config_data["profiles"] = [dict(base, name=n) for n in ("a", "b", "c", "d")]

@@ -17,7 +17,7 @@ import zipfile
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import requests
 
@@ -77,7 +77,7 @@ MOD_EXTENSIONS = (".jar", ".jar.disabled")
 # Modrinth too and are identified and updated exactly like mods; they use fixed
 # "loaders" instead of a mod loader.
 CONTENT_MODS = "mods"
-CONTENT_TYPES = {
+CONTENT_TYPES: Dict[str, Dict[str, Any]] = {
     "mods": {"extensions": MOD_EXTENSIONS, "loaders": None},
     "resourcepacks": {"extensions": (".zip", ".zip.disabled"), "loaders": ["minecraft"]},
     "shaderpacks": {"extensions": (".zip", ".zip.disabled"), "loaders": ["iris", "optifine", "canvas", "vanilla"]},
@@ -135,7 +135,7 @@ def load_config() -> Dict:
     if not os.path.exists(CONFIG_FILE):
         return json.loads(json.dumps(DEFAULT_CONFIG))
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
             config = json.load(f)
     except (OSError, ValueError):
         return json.loads(json.dumps(DEFAULT_CONFIG))
@@ -268,8 +268,8 @@ class ModrinthClient:
         return sorted(versions, key=lambda v: v.get("date", ""), reverse=True)
 
     def loaders(self) -> List[str]:
-        names = [l["name"] for l in self._request("GET", "/tag/loader")
-                 if "mod" in l.get("supported_project_types", []) and l["name"] not in IGNORED_LOADERS]
+        names = [tag["name"] for tag in self._request("GET", "/tag/loader")
+                 if "mod" in tag.get("supported_project_types", []) and tag["name"] not in IGNORED_LOADERS]
         return sort_loaders(names)
 
     def download(self, url: str, destination: str, expected_sha512: Optional[str]) -> None:
@@ -291,13 +291,13 @@ class ModrinthClient:
 
 def sort_loaders(names: Iterable[str]) -> List[str]:
     names = list(dict.fromkeys(names))
-    preferred = [l for l in PREFERRED_LOADERS if l in names]
+    preferred = [name for name in PREFERRED_LOADERS if name in names]
     return preferred + sorted(n for n in names if n not in preferred)
 
 
 def load_tag_cache() -> Dict:
     try:
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+        with open(CACHE_FILE, encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return {}
@@ -437,7 +437,7 @@ def determine_status(mod: ModInfo, game_version: str, loaders: List[str]) -> str
         return STATUS_UP_TO_DATE
 
     current_compatible = (game_version in mod.current.get("game_versions", [])
-                          and any(l in mod.current.get("loaders", []) for l in loaders))
+                          and any(name in mod.current.get("loaders", []) for name in loaders))
     if current_compatible and (_parse_date(mod.latest.get("date_published", ""))
                                <= _parse_date(mod.current.get("date_published", ""))):
         # Installed file is already valid for the target and is not older.
@@ -462,7 +462,7 @@ class ScanResult:
 
 def _load_hash_cache() -> Dict[str, Dict]:
     try:
-        with open(HASH_CACHE_FILE, "r", encoding="utf-8") as f:
+        with open(HASH_CACHE_FILE, encoding="utf-8") as f:
             cache = json.load(f)
         return cache if isinstance(cache, dict) else {}
     except (OSError, ValueError):
@@ -471,7 +471,7 @@ def _load_hash_cache() -> Dict[str, Dict]:
 
 def _load_json(path: str) -> Dict:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
@@ -688,7 +688,7 @@ def identify_local_mods(client: ModrinthClient, mods: List[ModInfo]) -> List[Mod
         mod = unknown.get(h)
         if not mod:
             continue
-        project = projects.get(version.get("project_id"), {})
+        project = projects.get(version.get("project_id", ""), {})
         mod.current = version
         mod.title = project.get("title", "")
         mod.icon_url = project.get("icon_url") or ""
@@ -777,8 +777,8 @@ def detect_from_versions(versions: Iterable[Dict]) -> Dict[str, str]:
         result["game_version"] = ranked[0] if ranked else sorted(candidates)[-1]
     if loader_counter:
         best = max(loader_counter.values())
-        candidates = [l for l, c in loader_counter.items() if c == best]
-        result["loader"] = sort_loaders(candidates)[0]
+        top_loaders = [name for name, c in loader_counter.items() if c == best]
+        result["loader"] = sort_loaders(top_loaders)[0]
     return result
 
 
@@ -838,7 +838,7 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
         mod.latest = latest.get(h)
         mod.status = determine_status(mod, result.game_version or "", loaders)
         if mod.current:
-            project = projects.get(mod.current.get("project_id"), {})
+            project = projects.get(mod.current.get("project_id", ""), {})
             mod.title = project.get("title", "")
             mod.icon_url = project.get("icon_url") or ""
             mod.page_url = modrinth_page_url(project, mod.current.get("project_id", ""))
@@ -913,8 +913,8 @@ def find_missing_dependencies(client: ModrinthClient, mods: List[ModInfo], mod_f
     for pid, names in missing.items():
         candidates = client.project_versions(pid, loaders, [game_version])
         stable = [v for v in candidates if v.get("version_type") == "release"]
-        version = (candidates if allow_beta else (stable or candidates))[:1]
-        version = version[0] if version else None
+        picked = (candidates if allow_beta else (stable or candidates))[:1]
+        version = picked[0] if picked else None
         file_info = primary_file(version) if version else None
         project = projects.get(pid, {})
         filename = file_info["filename"] if file_info else f"{project.get('slug') or pid}.jar"
@@ -1038,13 +1038,13 @@ def list_backups(mod_folder: str) -> List[Backup]:
     """Backups made by update_mods() for this folder, newest first."""
     root = backup_root(mod_folder)
     folder = os.path.normcase(os.path.abspath(mod_folder))
-    backups = []
+    backups: List[Backup] = []
     if not os.path.isdir(root):
         return backups
     for name in os.listdir(root):
         manifest = os.path.join(root, name, BACKUP_MANIFEST)
         try:
-            with open(manifest, "r", encoding="utf-8") as f:
+            with open(manifest, encoding="utf-8") as f:
                 data = json.load(f)
             if os.path.normcase(os.path.abspath(data["folder"])) != folder:
                 continue

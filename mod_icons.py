@@ -27,7 +27,7 @@ ACCENT = "#2E9E5B"
 def _rounded_mask(size: int, radius: int) -> Image.Image:
     mask = Image.new("L", (size * SS, size * SS), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, size * SS - 1, size * SS - 1), radius * SS, fill=255)
-    return mask.resize((size, size), Image.LANCZOS)
+    return mask.resize((size, size), Image.Resampling.LANCZOS)
 
 
 class IconCache:
@@ -44,7 +44,7 @@ class IconCache:
         return os.path.join(ICON_DIR, hashlib.sha1(url.encode("utf-8")).hexdigest()[:20] + ".png")
 
     def _prepare(self, raw: Image.Image) -> Image.Image:
-        icon = ImageOps.contain(raw.convert("RGBA"), (ICON * 2, ICON * 2), Image.LANCZOS)
+        icon = ImageOps.contain(raw.convert("RGBA"), (ICON * 2, ICON * 2), Image.Resampling.LANCZOS)
         square = Image.new("RGBA", (ICON * 2, ICON * 2), (0, 0, 0, 0))
         square.paste(icon, ((ICON * 2 - icon.width) // 2, (ICON * 2 - icon.height) // 2), icon)
         return square
@@ -100,7 +100,7 @@ class IconCache:
         inset = 7 * SS
         draw.rounded_rectangle((inset, inset, size - inset, size - inset), 2 * SS,
                                outline="#6B727B" if dark else "#9AA1A9", width=2 * SS)
-        return img.resize((ICON, ICON), Image.LANCZOS)
+        return img.resize((ICON, ICON), Image.Resampling.LANCZOS)
 
     @staticmethod
     def _checkbox(checked: bool, dark: bool) -> Image.Image:
@@ -114,19 +114,19 @@ class IconCache:
         else:
             draw.rounded_rectangle((SS, SS, size - 1 - SS, size - 1 - SS), 4 * SS,
                                    outline="#8A9099" if dark else "#7A8088", width=int(1.6 * SS))
-        return img.resize((BOX, BOX), Image.LANCZOS)
+        return img.resize((BOX, BOX), Image.Resampling.LANCZOS)
 
     def row_image(self, url: str, check: Optional[bool], dark: bool) -> ImageTk.PhotoImage:
         """Checkbox (None = no checkbox) + mod icon, as one image for a table row."""
-        loaded = self.get(url) is not None
-        key = (url if loaded else "", check, dark)
+        source = self.get(url)
+        key = (url if source is not None else "", check, dark)
         if key not in self._photos:
             canvas = Image.new("RGBA", (BOX + GAP + ICON, ICON), (0, 0, 0, 0))
             if check is not None:
                 box = self._checkbox(check, dark)
                 canvas.paste(box, (0, (ICON - BOX) // 2), box)
-            if loaded:
-                icon = self.get(url).resize((ICON, ICON), Image.LANCZOS)
+            if source is not None:
+                icon = source.resize((ICON, ICON), Image.Resampling.LANCZOS)
                 icon.putalpha(Image.composite(icon.getchannel("A"), Image.new("L", icon.size, 0),
                                               _rounded_mask(ICON, 5)))
             else:
