@@ -3,8 +3,9 @@
 import json
 import os
 
-import updater_core as core
 from test_core import FakeClient, fake_modrinth, file_entry, make_mods_folder, sha, version
+
+import updater_core as core
 
 NO_PROGRESS = lambda f, m: None  # noqa: E731
 
@@ -193,3 +194,129 @@ def test_updated_files_are_listed_with_their_names(tmp_path):
     core.update_mods(client, [m for m in result.mods if m.actionable], str(mods_dir), False, NO_PROGRESS)
     listed = {m.filename: m.display_name for m in core.list_local_mods(str(mods_dir))}
     assert listed["sodium-0.9.jar"] == "Sodium"
+
+
+def test_mods_are_disabled_and_enabled_by_renaming(tmp_path):
+    folder = tmp_path / "mods"
+    folder.mkdir()
+    (folder / "a.jar").write_bytes(b"a")
+    (folder / "a-copy.jar").write_bytes(b"a")
+    mod = core.ModInfo(path=str(folder / "a.jar"), duplicates=[str(folder / "a-copy.jar")])
+    core.set_enabled(mod, False)
+    assert mod.disabled and sorted(os.listdir(folder)) == ["a-copy.jar.disabled", "a.jar.disabled"]
+    core.set_enabled(mod, True)
+    assert not mod.disabled and sorted(os.listdir(folder)) == ["a-copy.jar", "a.jar"]
+
+
+def test_disabling_never_overwrites_a_file(tmp_path):
+    folder = tmp_path / "mods"
+    folder.mkdir()
+    (folder / "a.jar").write_bytes(b"new")
+    (folder / "a.jar.disabled").write_bytes(b"old")
+    mod = core.ModInfo(path=str(folder / "a.jar"))
+    try:
+        core.set_enabled(mod, False)
+        raise AssertionError("expected an error")
+    except OSError:
+        pass
+    assert (folder / "a.jar").read_bytes() == b"new" and (folder / "a.jar.disabled").read_bytes() == b"old"
+    assert mod.path == str(folder / "a.jar")
+
+
+def test_pinned_mods_are_kept(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    result = core.scan_mods(fake_modrinth(), str(mods_dir), "26.3", "fabric", False, NO_PROGRESS,
+                            pinned={"sodium": "S1"})
+    sodium = next(m for m in result.mods if m.filename == "sodium-old.jar")
+    assert sodium.status == core.STATUS_PINNED and not sodium.actionable
+    lithium = next(m for m in result.mods if m.filename == "lithium-old.jar.disabled")
+    assert lithium.status == core.STATUS_UPDATE  # other mods are not affected
+
+
+def test_installing_an_older_version(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    client = fake_modrinth()
+    old = version("S0", ["26.3"], ["fabric"], "2026-01-01", project="sodium", number="0.5",
+                  files=[file_entry("sodium-0.5.jar", b"sodium-0.5")])
+    client.payloads["https://cdn.example/sodium-0.5.jar"] = b"sodium-0.5"
+    client.all_versions = [old]
+    result = core.scan_mods(client, str(mods_dir), "26.3", "fabric", False, NO_PROGRESS)
+    sodium = next(m for m in result.mods if m.filename == "sodium-old.jar")
+    assert core.available_versions(client, sodium, "26.3", ["fabric"]) == [old]
+    sodium.latest = old
+    core.update_mods(client, [sodium], str(mods_dir), False, NO_PROGRESS)
+    assert (mods_dir / "sodium-0.5.jar").exists() and not (mods_dir / "sodium-old.jar").exists()
+
+
+def test_duplicated_and_incompatible_mods_are_reported(tmp_path):
+    def installed(name, project, deps=(), disabled=False):
+        path = tmp_path / (name + (".disabled" if disabled else ""))
+        path.write_bytes(name.encode())
+        return core.ModInfo(path=str(path), title=project.title(), status=core.STATUS_UP_TO_DATE,
+                            current={"id": name, "project_id": project, "dependencies": list(deps)})
+    jade_old, jade_new = installed("jade-1.jar", "jade"), installed("jade-2.jar", "jade")
+    jade_backup = installed("jade-0.jar", "jade", disabled=True)
+    optifine = installed("optifabric.jar", "optifabric")
+    sodium = installed("sodium.jar", "sodium", deps=[{"project_id": "optifabric", "dependency_type": "incompatible"}])
+    missing = core.ModInfo(path=str(tmp_path / "api.jar"), status=core.STATUS_MISSING_DEP, project_hint="fabric-api")
+    mods = [jade_old, jade_new, jade_backup, optifine, sodium, missing]
+    core.find_problems(mods)
+    assert jade_old.other_versions == ["jade-2.jar"] and jade_new.other_versions == ["jade-1.jar"]
+    assert jade_backup.other_versions == []  # a disabled copy is not a problem
+    assert sodium.incompatible_with == ["Optifabric"] and optifine.incompatible_with == ["Sodium"]
+    assert not missing.has_problems
+
+
+def test_migration_plan_and_migrate(tmp_path):
+    """Moving to 26.4: Sodium has a version, Lithium does not and is disabled, local.jar is unknown."""
+    mods_dir = make_mods_folder(tmp_path)
+    (mods_dir / "lithium-old.jar.disabled").rename(mods_dir / "lithium-old.jar")
+    client = fake_modrinth()
+    del client.latest[sha(b"lithium-old")]
+    plan = core.plan_migration(client, str(mods_dir), core.AUTO, "26.4", False)
+    assert [m.display_name for m in plan.ready] == ["Sodium"]
+    assert [m.display_name for m in plan.missing] == ["Lithium"]
+    assert [m.filename for m in plan.unknown] == ["local.jar"]
+    assert client.latest_calls[0] == (("fabric",), ("26.4",))
+    backup_dir, failed = core.migrate(client, plan, str(mods_dir), True, True, NO_PROGRESS)
+    assert failed == [] and backup_dir
+    assert sorted(os.listdir(mods_dir)) == ["lithium-old.jar.disabled", "local.jar", "sodium-0.9.jar"]
+
+
+def test_search_uses_the_profile_target():
+    client = FakeClient({}, {})
+    searches = []
+    client.search = lambda query, facets, limit=20: searches.append((query, facets)) or [{"title": "Sodium"}]
+    assert core.search_projects(client, "sod", "mods", "26.3", ["quilt", "fabric"]) == [{"title": "Sodium"}]
+    assert searches[-1] == ("sod", [["project_type:mod"], ["versions:26.3"], ["categories:quilt", "categories:fabric"]])
+    core.search_projects(client, "", "shaderpacks", "26.3", ["iris"])
+    assert searches[-1][1] == [["project_type:shader"], ["versions:26.3"]]
+    assert core.target_loaders("mods", "quilt") == ["quilt", "fabric"]
+    assert core.target_loaders("resourcepacks", core.AUTO) == ["minecraft"]
+
+
+def test_installing_from_the_search_brings_dependencies(tmp_path):
+    mods_dir = make_mods_folder(tmp_path)
+    client = fake_modrinth()
+    menu = version("M1", ["26.3"], ["fabric"], "2026-09-01", project="modmenu", number="21.0",
+                   files=[file_entry("modmenu-21.0.jar", b"menu")])
+    menu["version_type"] = "release"
+    menu["dependencies"] = [{"project_id": "fabric-api", "dependency_type": "required"},
+                            {"project_id": "sodium", "dependency_type": "required"}]  # sodium is installed
+    api = version("A1", ["26.3"], ["fabric"], "2026-09-01", project="fabric-api", number="0.161",
+                  files=[file_entry("fabric-api-0.161.jar", b"api")])
+    client.all_versions = [menu, api]
+    client._projects["fabric-api"] = {"title": "Fabric API", "slug": "fabric-api", "project_type": "mod"}
+    client.payloads.update({"https://cdn.example/modmenu-21.0.jar": b"menu",
+                            "https://cdn.example/fabric-api-0.161.jar": b"api"})
+    hit = {"project_id": "modmenu", "slug": "modmenu", "title": "Mod Menu", "project_type": "mod"}
+    plan = core.plan_install(client, hit, str(mods_dir), "26.3", ["fabric"], False)
+    assert [m.display_name for m in plan] == ["Mod Menu", "Fabric API"]
+    core.update_mods(client, plan, str(mods_dir), False, NO_PROGRESS)
+    assert (mods_dir / "modmenu-21.0.jar").exists() and (mods_dir / "fabric-api-0.161.jar").exists()
+    assert (mods_dir / "sodium-old.jar").exists()  # nothing replaced
+    try:
+        core.plan_install(client, {"project_id": "sodium", "title": "Sodium"}, str(mods_dir), "26.3", ["fabric"], False)
+        raise AssertionError("an installed project must not be installed again")
+    except core.ModrinthError:
+        pass

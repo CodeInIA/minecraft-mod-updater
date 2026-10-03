@@ -94,7 +94,7 @@ def download(release: Release, progress: Callable[[float], None]) -> str:
     if not release.asset_url:
         raise UpdateError(t("err_update_asset"))
     folder = tempfile.mkdtemp(prefix="mmu-update-")
-    path = os.path.join(folder, release.asset_name)
+    path = os.path.join(folder, release.asset_name or "update")
     sha = hashlib.sha256()
     try:
         with requests.get(release.asset_url, stream=True, timeout=TIMEOUT,

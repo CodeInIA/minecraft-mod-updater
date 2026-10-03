@@ -56,7 +56,7 @@ def _instance_name(launcher: str, folder: str) -> str:
     """Prism and MultiMC keep the display name in instance.cfg; the others use the folder name."""
     if launcher in ("Prism Launcher", "MultiMC"):
         try:
-            with open(os.path.join(folder, "instance.cfg"), "r", encoding="utf-8", errors="replace") as f:
+            with open(os.path.join(folder, "instance.cfg"), encoding="utf-8", errors="replace") as f:
                 for line in f:
                     if line.startswith("name="):
                         return line.split("=", 1)[1].strip() or os.path.basename(folder)

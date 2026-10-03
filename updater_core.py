@@ -7,17 +7,21 @@ strings, so it works with any versioning scheme: old ones like 1.21.5 and the
 new year-based ones like 26.3 or 26.4-snapshot-1.
 """
 
+import errno
 import hashlib
 import json
+import logging
+import logging.handlers
 import os
 import re
 import shutil
 import sys
+import time
 import zipfile
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import requests
 
@@ -58,10 +62,18 @@ HASH_CACHE_FILE = os.path.join(CONFIG_DIR, "hash_cache.json")
 # so a profile's files can be listed with their names before checking for updates
 MOD_INFO_CACHE_FILE = os.path.join(CONFIG_DIR, "mod_info_cache.json")
 DEFAULT_MINECRAFT_MODS = os.path.join(MINECRAFT_DIR, "mods")
+# What the app did and what went wrong, to diagnose problems (rotated, at most ~3 MB)
+LOG_FILE = os.path.join(CONFIG_DIR, "mod_updater.log")
+
+log = logging.getLogger("mod_updater")
+log.addHandler(logging.NullHandler())  # silent until the app calls setup_logging()
 
 MODRINTH_API_URL = "https://api.modrinth.com/v2"
 USER_AGENT = f"CodeInIA/minecraft-mod-updater/{APP_VERSION} ({REPO_URL})"
 REQUEST_TIMEOUT = 30
+RETRIES = 3                                  # extra attempts after a failed request
+RETRY_STATUSES = {429, 500, 502, 503, 504}   # rate limited or temporary server problems
+MAX_RETRY_WAIT = 30                          # seconds
 HASH_BATCH_SIZE = 200
 
 # Loaders shown first in the UI; any other loader Modrinth knows comes after.
@@ -77,7 +89,7 @@ MOD_EXTENSIONS = (".jar", ".jar.disabled")
 # Modrinth too and are identified and updated exactly like mods; they use fixed
 # "loaders" instead of a mod loader.
 CONTENT_MODS = "mods"
-CONTENT_TYPES = {
+CONTENT_TYPES: Dict[str, Dict[str, Any]] = {
     "mods": {"extensions": MOD_EXTENSIONS, "loaders": None},
     "resourcepacks": {"extensions": (".zip", ".zip.disabled"), "loaders": ["minecraft"]},
     "shaderpacks": {"extensions": (".zip", ".zip.disabled"), "loaders": ["iris", "optifine", "canvas", "vanilla"]},
@@ -95,7 +107,7 @@ DEFAULT_CONFIG = {
     "config_version": 2,
     "profiles": [
         {"name": "client", "path": DEFAULT_MINECRAFT_MODS, "game_version": AUTO, "loader": AUTO,
-         "color": PROFILE_COLORS[0], "content": CONTENT_MODS, "server": False, "ignored": []},
+         "color": PROFILE_COLORS[0], "content": CONTENT_MODS, "server": False, "ignored": [], "pinned": {}},
     ],
     "current_profile": "client",
     "backup_mods": True,
@@ -135,7 +147,7 @@ def load_config() -> Dict:
     if not os.path.exists(CONFIG_FILE):
         return json.loads(json.dumps(DEFAULT_CONFIG))
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
             config = json.load(f)
     except (OSError, ValueError):
         return json.loads(json.dumps(DEFAULT_CONFIG))
@@ -160,6 +172,8 @@ def load_config() -> Dict:
             profile["server"] = any(w in profile.get("name", "").lower() for w in ("server", "servidor", "serveur"))
         if not isinstance(profile.get("ignored"), list):
             profile["ignored"] = []
+        if not isinstance(profile.get("pinned"), dict):
+            profile["pinned"] = {}  # project id -> version id chosen by the user
     return config
 
 
@@ -199,20 +213,59 @@ class ModrinthError(Exception):
     pass
 
 
+def setup_logging() -> None:
+    """Write the app's log to LOG_FILE (called once by the app, not by the tests)."""
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        handler = logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=2,
+                                                       encoding="utf-8")
+    except OSError:
+        return
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    log.info("%s %s started on %s", APP_NAME, APP_VERSION, sys.platform)
+
+
+def retry_wait(attempt: int, response: Optional[requests.Response] = None) -> float:
+    """Seconds to wait before retrying: what Modrinth asks for when rate limited, otherwise 1, 2, 4..."""
+    if response is not None and response.status_code == 429:
+        try:
+            return min(MAX_RETRY_WAIT, max(1.0, float(response.headers.get("X-Ratelimit-Reset", ""))))
+        except ValueError:
+            pass
+    return min(MAX_RETRY_WAIT, float(2 ** attempt))
+
+
 class ModrinthClient:
     def __init__(self) -> None:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": USER_AGENT})
+        self.sleep: Callable[[float], None] = time.sleep  # replaced by the tests
 
     def _request(self, method: str, path: str, **kwargs):
-        try:
-            response = self.session.request(method, f"{MODRINTH_API_URL}{path}",
-                                            timeout=REQUEST_TIMEOUT, **kwargs)
-        except requests.RequestException as e:
-            raise ModrinthError(t("err_connect", error=e)) from e
+        url = f"{MODRINTH_API_URL}{path}"
+        for attempt in range(RETRIES + 1):
+            try:
+                response = self.session.request(method, url, timeout=REQUEST_TIMEOUT, **kwargs)
+            except requests.RequestException as e:
+                if attempt < RETRIES:
+                    log.warning("%s %s failed (%s), retrying", method, path, e)
+                    self.sleep(retry_wait(attempt))
+                    continue
+                log.error("%s %s failed: %s", method, path, e)
+                raise ModrinthError(t("err_connect", error=e)) from e
+            if response.status_code in RETRY_STATUSES and attempt < RETRIES:
+                wait = retry_wait(attempt, response)
+                log.warning("%s %s answered %s, retrying in %.0f s", method, path, response.status_code, wait)
+                self.sleep(wait)
+                continue
+            break
         if response.status_code == 429:
+            log.error("%s %s: rate limited", method, path)
             raise ModrinthError(t("err_rate_limit"))
         if response.status_code >= 400:
+            log.error("%s %s answered %s: %s", method, path, response.status_code, response.text[:200])
             raise ModrinthError(t("err_http", code=response.status_code, text=response.text[:200]))
         return response.json()
 
@@ -263,41 +316,61 @@ class ModrinthClient:
                                  params={"loaders": json.dumps(loaders), "game_versions": json.dumps(game_versions)})
         return sorted(versions, key=lambda v: v.get("date_published", ""), reverse=True)
 
+    def search(self, query: str, facets: List[List[str]], limit: int = 20) -> List[Dict]:
+        """Projects matching a search, as Modrinth's search returns them."""
+        params = {"query": query, "facets": json.dumps(facets), "limit": limit,
+                  "index": "relevance" if query.strip() else "downloads"}
+        return self._request("GET", "/search", params=params).get("hits", [])
+
     def game_versions(self) -> List[Dict]:
         versions = self._request("GET", "/tag/game_version")
         return sorted(versions, key=lambda v: v.get("date", ""), reverse=True)
 
     def loaders(self) -> List[str]:
-        names = [l["name"] for l in self._request("GET", "/tag/loader")
-                 if "mod" in l.get("supported_project_types", []) and l["name"] not in IGNORED_LOADERS]
+        names = [tag["name"] for tag in self._request("GET", "/tag/loader")
+                 if "mod" in tag.get("supported_project_types", []) and tag["name"] not in IGNORED_LOADERS]
         return sort_loaders(names)
 
     def download(self, url: str, destination: str, expected_sha512: Optional[str]) -> None:
-        h = hashlib.sha512()
-        try:
-            with self.session.get(url, stream=True, timeout=REQUEST_TIMEOUT) as response:
-                response.raise_for_status()
-                with open(destination, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=65536):
-                        f.write(chunk)
-                        h.update(chunk)
-        except (requests.RequestException, OSError) as e:
-            _silent_remove(destination)
-            raise ModrinthError(t("err_download", error=e)) from e
-        if expected_sha512 and h.hexdigest() != expected_sha512:
-            _silent_remove(destination)
-            raise ModrinthError(t("err_corrupt"))
+        """Download a file, retrying failed or corrupted downloads."""
+        for attempt in range(RETRIES + 1):
+            last = attempt == RETRIES
+            h = hashlib.sha512()
+            try:
+                with self.session.get(url, stream=True, timeout=REQUEST_TIMEOUT) as response:
+                    response.raise_for_status()
+                    with open(destination, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=65536):
+                            f.write(chunk)
+                            h.update(chunk)
+            except (requests.RequestException, OSError) as e:
+                _silent_remove(destination)
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if not last and (status is None or status in RETRY_STATUSES):
+                    log.warning("download of %s failed (%s), retrying", url, e)
+                    self.sleep(retry_wait(attempt))
+                    continue
+                log.error("download of %s failed: %s", url, e)
+                raise ModrinthError(t("err_download", error=e)) from e
+            if expected_sha512 and h.hexdigest() != expected_sha512:
+                _silent_remove(destination)
+                if not last:
+                    log.warning("download of %s is corrupted, retrying", url)
+                    continue
+                log.error("download of %s is corrupted", url)
+                raise ModrinthError(t("err_corrupt"))
+            return
 
 
 def sort_loaders(names: Iterable[str]) -> List[str]:
     names = list(dict.fromkeys(names))
-    preferred = [l for l in PREFERRED_LOADERS if l in names]
+    preferred = [name for name in PREFERRED_LOADERS if name in names]
     return preferred + sorted(n for n in names if n not in preferred)
 
 
 def load_tag_cache() -> Dict:
     try:
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+        with open(CACHE_FILE, encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return {}
@@ -328,6 +401,7 @@ STATUS_FAILED = "failed"
 STATUS_MISSING_DEP = "missing_dependency"  # required by another mod but not installed
 STATUS_INSTALLED = "installed"             # a missing dependency that was just installed
 STATUS_IGNORED = "ignored"                 # the user chose not to update this mod
+STATUS_PINNED = "pinned"                   # the user chose a version of this mod and keeps it
 STATUS_UNCHECKED = "unchecked"             # listed from the folder, not checked on Modrinth yet
 
 # Statuses whose rows can be ticked and updated/installed
@@ -352,6 +426,12 @@ class ModInfo:
     required_by: List[str] = field(default_factory=list)  # for missing dependencies
     side_warning: str = ""                                 # SIDE_CLIENT_ONLY / SIDE_SERVER_ONLY
     project_hint: str = ""                                 # project id when there is no version data
+    other_versions: List[str] = field(default_factory=list)  # other files of the same project
+    incompatible_with: List[str] = field(default_factory=list)  # installed mods it does not work with
+
+    @property
+    def has_problems(self) -> bool:
+        return bool(self.other_versions or self.incompatible_with)
 
     @property
     def project_id(self) -> str:
@@ -437,7 +517,7 @@ def determine_status(mod: ModInfo, game_version: str, loaders: List[str]) -> str
         return STATUS_UP_TO_DATE
 
     current_compatible = (game_version in mod.current.get("game_versions", [])
-                          and any(l in mod.current.get("loaders", []) for l in loaders))
+                          and any(name in mod.current.get("loaders", []) for name in loaders))
     if current_compatible and (_parse_date(mod.latest.get("date_published", ""))
                                <= _parse_date(mod.current.get("date_published", ""))):
         # Installed file is already valid for the target and is not older.
@@ -462,7 +542,7 @@ class ScanResult:
 
 def _load_hash_cache() -> Dict[str, Dict]:
     try:
-        with open(HASH_CACHE_FILE, "r", encoding="utf-8") as f:
+        with open(HASH_CACHE_FILE, encoding="utf-8") as f:
             cache = json.load(f)
         return cache if isinstance(cache, dict) else {}
     except (OSError, ValueError):
@@ -471,7 +551,7 @@ def _load_hash_cache() -> Dict[str, Dict]:
 
 def _load_json(path: str) -> Dict:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
@@ -666,6 +746,7 @@ def list_local_mods(mod_folder: str, content: str = CONTENT_MODS) -> List[ModInf
             mod.current = {"version_number": info.get("version_number", "?"),
                            "project_id": info.get("project_id", "")}
     _fill_icons_from_jars(mods)
+    find_problems(mods)
     return sorted(mods, key=lambda m: m.display_name.lower())
 
 
@@ -688,7 +769,7 @@ def identify_local_mods(client: ModrinthClient, mods: List[ModInfo]) -> List[Mod
         mod = unknown.get(h)
         if not mod:
             continue
-        project = projects.get(version.get("project_id"), {})
+        project = projects.get(version.get("project_id", ""), {})
         mod.current = version
         mod.title = project.get("title", "")
         mod.icon_url = project.get("icon_url") or ""
@@ -701,6 +782,7 @@ def identify_local_mods(client: ModrinthClient, mods: List[ModInfo]) -> List[Mod
         mod.icon_url = project.get("icon_url") or ""
         mod.page_url = modrinth_page_url(project, project["id"])
     _fill_icons_from_jars(unknown.values())
+    find_problems(mods)
     _remember_mod_info(unknown.values())
     return sorted(mods, key=lambda m: m.display_name.lower())
 
@@ -777,14 +859,15 @@ def detect_from_versions(versions: Iterable[Dict]) -> Dict[str, str]:
         result["game_version"] = ranked[0] if ranked else sorted(candidates)[-1]
     if loader_counter:
         best = max(loader_counter.values())
-        candidates = [l for l, c in loader_counter.items() if c == best]
-        result["loader"] = sort_loaders(candidates)[0]
+        top_loaders = [name for name, c in loader_counter.items() if c == best]
+        result["loader"] = sort_loaders(top_loaders)[0]
     return result
 
 
 def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader: str,
               allow_beta: bool, progress: ProgressFn, content: str = CONTENT_MODS,
-              ignored: Iterable[str] = (), server: bool = False) -> ScanResult:
+              ignored: Iterable[str] = (), server: bool = False,
+              pinned: Optional[Dict[str, str]] = None) -> ScanResult:
     """Hash every file in the folder and look up installed/latest versions on Modrinth.
 
     `game_version` and `loader` may be AUTO, in which case they are detected
@@ -795,6 +878,7 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
     spec = CONTENT_TYPES.get(content, CONTENT_TYPES[CONTENT_MODS])
     fixed_loaders = spec["loaders"]
     ignored = set(ignored)
+    pinned = pinned or {}
     mods, by_hash = _hash_folder(mod_folder, progress, spec["extensions"])
     result = ScanResult(mods=mods, game_version=None if game_version == AUTO else game_version,
                         loader=None if (loader == AUTO or fixed_loaders) else loader, content=content)
@@ -838,12 +922,14 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
         mod.latest = latest.get(h)
         mod.status = determine_status(mod, result.game_version or "", loaders)
         if mod.current:
-            project = projects.get(mod.current.get("project_id"), {})
+            project = projects.get(mod.current.get("project_id", ""), {})
             mod.title = project.get("title", "")
             mod.icon_url = project.get("icon_url") or ""
             mod.page_url = modrinth_page_url(project, mod.current.get("project_id", ""))
             if mod.project_id in ignored:
                 mod.status = STATUS_IGNORED
+            elif mod.project_id in pinned:
+                mod.status = STATUS_PINNED
             if project.get("server_side" if server else "client_side") == "unsupported":
                 mod.side_warning = SIDE_CLIENT_ONLY if server else SIDE_SERVER_ONLY
 
@@ -867,6 +953,8 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
             mod.page_url = modrinth_page_url(project, project["id"])
             if mod.project_id in ignored:
                 mod.status = STATUS_IGNORED
+            elif mod.project_id in pinned:
+                mod.status = STATUS_PINNED
             if project.get("server_side" if server else "client_side") == "unsupported":
                 mod.side_warning = SIDE_CLIENT_ONLY if server else SIDE_SERVER_ONLY
     _fill_icons_from_jars(by_hash.values())
@@ -879,11 +967,155 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
         except ModrinthError:
             pass  # dependencies are a bonus; the scan itself succeeded
 
+    find_problems(mods)
     _remember_mod_info(by_hash.values())
+    log.info("scanned %s (%s, %s %s): %s", mod_folder, content, result.game_version, result.loader,
+             dict(Counter(m.status for m in mods)))
     progress(1.0, t("ready"))
     first = (STATUS_MISSING_DEP, STATUS_UPDATE)
     mods.sort(key=lambda m: (m.status not in first, m.status != STATUS_MISSING_DEP, m.display_name.lower()))
     return result
+
+
+PROJECT_TYPES = {"mods": "mod", "resourcepacks": "resourcepack", "shaderpacks": "shader", "datapacks": "datapack"}
+
+
+def search_projects(client: ModrinthClient, query: str, content: str, game_version: str,
+                    loaders: List[str]) -> List[Dict]:
+    """Modrinth projects of the profile's content type that have a version for its target."""
+    facets = [[f"project_type:{PROJECT_TYPES.get(content, 'mod')}"], [f"versions:{game_version}"]]
+    if content == CONTENT_MODS and loaders:
+        facets.append([f"categories:{loader}" for loader in loaders])
+    return client.search(query, facets)
+
+
+def target_loaders(content: str, loader: Optional[str]) -> List[str]:
+    """Loaders to ask Modrinth for: the content type's own, or the mod loader and compatible ones."""
+    spec = CONTENT_TYPES.get(content, CONTENT_TYPES[CONTENT_MODS])
+    if spec["loaders"]:
+        return list(spec["loaders"])
+    return query_loaders(loader) if loader and loader != AUTO else []
+
+
+def plan_install(client: ModrinthClient, project: Dict, mod_folder: str, game_version: str, loaders: List[str],
+                 allow_beta: bool, content: str = CONTENT_MODS) -> List[ModInfo]:
+    """A project found in the search, plus the required dependencies that are not installed yet.
+
+    The result is ready for update_mods(), which installs them as new files.
+    """
+    project_id = project.get("project_id") or project.get("id") or ""
+    candidates = client.project_versions(project_id, loaders, [game_version])
+    stable = [v for v in candidates if v.get("version_type") == "release"]
+    picked = candidates if allow_beta else (stable or candidates)
+    file_info = primary_file(picked[0]) if picked else None
+    if not file_info:
+        raise ModrinthError(t("no_versions"))
+    version = picked[0]
+    new = ModInfo(path=os.path.join(mod_folder, file_info["filename"]), latest=version, status=STATUS_UPDATE,
+                  title=project.get("title", ""), icon_url=project.get("icon_url") or "",
+                  page_url=f"https://modrinth.com/{project.get('project_type') or 'mod'}/{project.get('slug') or project_id}",
+                  project_hint=project_id)
+    spec = CONTENT_TYPES.get(content, CONTENT_TYPES[CONTENT_MODS])
+    _mods, by_hash = _hash_folder(mod_folder, lambda _f, _m: None, spec["extensions"])
+    current = client.versions_from_hashes(list(by_hash)) if by_hash else {}
+    if any(v.get("project_id") == project_id for v in current.values()):
+        raise ModrinthError(t("search_already"))
+    to_install = [new]
+    if content == CONTENT_MODS:
+        installed = [ModInfo(path=m.path, current=current[h], status=STATUS_UP_TO_DATE)
+                     for h, m in by_hash.items() if h in current]
+        to_install += find_missing_dependencies(client, installed + [new], mod_folder, game_version, loaders, allow_beta)
+    return to_install
+
+
+def installed_projects(mods: Iterable[ModInfo]) -> set:
+    return {m.project_id for m in mods if m.project_id and m.status != STATUS_MISSING_DEP}
+
+
+@dataclass
+class MigrationPlan:
+    """What moving a profile to another Minecraft version involves."""
+    target: str
+    loader: Optional[str]
+    ready: List[ModInfo]         # have a version for the target (to update, or already compatible)
+    missing: List[ModInfo]       # no version for the target yet
+    unknown: List[ModInfo]       # not on Modrinth: cannot tell
+    dependencies: List[ModInfo]  # required by the new versions and not installed
+
+    @property
+    def to_install(self) -> List[ModInfo]:
+        return [m for m in self.ready if m.status == STATUS_UPDATE] + self.dependencies
+
+
+def plan_migration(client: ModrinthClient, mod_folder: str, loader: str, target: str, allow_beta: bool,
+                   content: str = CONTENT_MODS) -> MigrationPlan:
+    """Check which files of a folder have a version for another Minecraft version.
+
+    Pinned and ignored mods are included: a version for the old Minecraft
+    version would not work with the new one.
+    """
+    result = scan_mods(client, mod_folder, target, loader, allow_beta, lambda _f, _m: None, content=content)
+    by_status: Dict[str, List[ModInfo]] = {}
+    for mod in result.mods:
+        by_status.setdefault(mod.status, []).append(mod)
+    ready = by_status.get(STATUS_UPDATE, []) + by_status.get(STATUS_UP_TO_DATE, [])
+    log.info("migration of %s to %s: %d ready, %d missing", mod_folder, target, len(ready),
+             len(by_status.get(STATUS_NO_COMPATIBLE, [])))
+    return MigrationPlan(target=target, loader=result.loader, ready=ready,
+                         missing=by_status.get(STATUS_NO_COMPATIBLE, []),
+                         unknown=by_status.get(STATUS_NOT_FOUND, []),
+                         dependencies=by_status.get(STATUS_MISSING_DEP, []))
+
+
+def migrate(client: ModrinthClient, plan: MigrationPlan, mod_folder: str, backup: bool, disable_missing: bool,
+            progress: ProgressFn) -> Tuple[Optional[str], List[ModInfo]]:
+    """Install the versions for the plan's target; optionally disable the mods without one.
+
+    Returns the backup folder and the mods whose update failed.
+    """
+    backup_dir = update_mods(client, plan.to_install, mod_folder, backup, progress)
+    failed = [m for m in plan.to_install if m.status == STATUS_FAILED]
+    if disable_missing:
+        for mod in plan.missing:
+            if not mod.disabled:
+                try:
+                    set_enabled(mod, False)
+                except OSError as e:
+                    mod.status, mod.error = STATUS_FAILED, str(e)
+                    failed.append(mod)
+    return backup_dir, failed
+
+
+def find_problems(mods: List[ModInfo]) -> None:
+    """Mark mods installed more than once (different files of one project) and incompatible mods.
+
+    Incompatibilities are the ones the authors declare on Modrinth, for the
+    installed version and for the update that would be installed.
+    """
+    installed = [m for m in mods if m.project_id and m.status != STATUS_MISSING_DEP and os.path.exists(m.path)]
+    by_project: Dict[str, List[ModInfo]] = {}
+    for mod in installed:
+        mod.other_versions, mod.incompatible_with = [], []
+        if not mod.disabled:  # a disabled copy is a deliberate backup, not a problem
+            by_project.setdefault(mod.project_id, []).append(mod)
+    for copies in by_project.values():
+        if len(copies) > 1:
+            for mod in copies:
+                mod.other_versions = sorted(m.filename for m in copies if m is not mod)
+
+    enabled = {m.project_id: m for m in installed if not m.disabled}
+    version_ids = {(m.current or {}).get("id"): m for m in enabled.values() if (m.current or {}).get("id")}
+    for mod in enabled.values():
+        declared = []
+        for version in (mod.current, mod.latest if mod.status == STATUS_UPDATE else None):
+            declared += [d for d in (version or {}).get("dependencies") or []
+                         if d.get("dependency_type") == "incompatible"]
+        for dep in declared:
+            other = enabled.get(dep.get("project_id") or "") or version_ids.get(dep.get("version_id") or "")
+            if other is not None and other is not mod:
+                for a, b in ((mod, other), (other, mod)):
+                    if b.display_name not in a.incompatible_with:
+                        a.incompatible_with.append(b.display_name)
 
 
 def find_missing_dependencies(client: ModrinthClient, mods: List[ModInfo], mod_folder: str,
@@ -913,8 +1145,8 @@ def find_missing_dependencies(client: ModrinthClient, mods: List[ModInfo], mod_f
     for pid, names in missing.items():
         candidates = client.project_versions(pid, loaders, [game_version])
         stable = [v for v in candidates if v.get("version_type") == "release"]
-        version = (candidates if allow_beta else (stable or candidates))[:1]
-        version = version[0] if version else None
+        picked = (candidates if allow_beta else (stable or candidates))[:1]
+        version = picked[0] if picked else None
         file_info = primary_file(version) if version else None
         project = projects.get(pid, {})
         filename = file_info["filename"] if file_info else f"{project.get('slug') or pid}.jar"
@@ -923,6 +1155,14 @@ def find_missing_dependencies(client: ModrinthClient, mods: List[ModInfo], mod_f
             title=project.get("title", ""), icon_url=project.get("icon_url") or "",
             page_url=modrinth_page_url(project, pid), required_by=sorted(set(names)), project_hint=pid))
     return sorted(found, key=lambda m: m.display_name.lower())
+
+
+def available_versions(client: ModrinthClient, mod: ModInfo, game_version: str,
+                       loaders: List[str]) -> List[Dict]:
+    """Every version of the mod's project for the target, newest first (for choosing one)."""
+    if not mod.project_id or not game_version or not loaders:
+        return []
+    return client.project_versions(mod.project_id, loaders, [game_version])
 
 
 def changelog_entries(client: ModrinthClient, mod: ModInfo, game_version: str,
@@ -952,6 +1192,64 @@ def detect_target(client: ModrinthClient, mod_folder: str, content: str = CONTEN
     if not by_hash:
         return {}
     return detect_from_versions(client.versions_from_hashes(list(by_hash.keys())).values())
+
+
+DISABLED_SUFFIX = ".disabled"
+
+
+def set_enabled(mod: ModInfo, enabled: bool) -> None:
+    """Enable or disable a mod (and its duplicates) by renaming x.jar <-> x.jar.disabled.
+
+    Every launcher skips files ending in .disabled. Raises OSError if a file
+    cannot be renamed (for example while the game uses it).
+    """
+    if mod.disabled != enabled:
+        return
+    done: List[Tuple[str, str]] = []
+    try:
+        for old in [mod.path] + mod.duplicates:
+            new = old[:-len(DISABLED_SUFFIX)] if enabled else old + DISABLED_SUFFIX
+            if os.path.exists(new):
+                raise FileExistsError(errno.EEXIST, t("err_file_exists"), new)
+            os.rename(old, new)
+            done.append((old, new))
+    except OSError:
+        for old, new in reversed(done):  # leave everything as it was
+            os.rename(new, old)
+        raise
+    mod.path = done[0][1]
+    mod.duplicates = [new for _old, new in done[1:]]
+    log.info("%s %s", "enabled" if enabled else "disabled", mod.display_name)
+
+
+def _java_processes() -> Iterable[Tuple[str, str]]:
+    """(command line, working folder) of every running Java process."""
+    try:
+        import psutil
+    except ImportError:
+        return
+    for process in psutil.process_iter(["name"]):
+        try:
+            if "java" not in (process.info.get("name") or "").lower():
+                continue
+            yield " ".join(process.cmdline()), process.cwd()
+        except (psutil.Error, OSError):
+            continue
+
+
+def game_running(mod_folder: str) -> bool:
+    """Whether Minecraft (or a Minecraft server) is running with this folder.
+
+    The game folder is the parent of the mods/resourcepacks/... folder: the
+    launcher passes it as --gameDir, and Prism, MultiMC and servers run in it.
+    """
+    game_dir = os.path.normcase(os.path.abspath(os.path.dirname(os.path.abspath(mod_folder))))
+    for command, cwd in _java_processes():
+        if (game_dir in os.path.normcase(command)
+                or (cwd and os.path.normcase(os.path.abspath(cwd)) == game_dir)):
+            log.info("Minecraft is running with %s", game_dir)
+            return True
+    return False
 
 
 def backup_root(mod_folder: str) -> str:
@@ -1007,9 +1305,12 @@ def update_mods(client: ModrinthClient, mods: List[ModInfo], mod_folder: str, ba
             mod.current = mod.latest
             mod.sha512 = file_info.get("hashes", {}).get("sha512", "")
             mod.status = STATUS_INSTALLED if is_new else STATUS_UPDATED
+            log.info("%s %s: %s -> %s", "installed" if is_new else "updated", mod.display_name,
+                     ", ".join(os.path.basename(o) for o in old_files) or "-", new_name)
         except (ModrinthError, OSError) as e:
             _silent_remove(part_path)
             mod.status, mod.error = STATUS_FAILED, str(e)
+            log.error("could not update %s: %s", mod.display_name, e)
 
     # So the new files show their names when the profile is listed again
     _remember_mod_info(m for m in mods if m.status in (STATUS_UPDATED, STATUS_INSTALLED))
@@ -1038,13 +1339,13 @@ def list_backups(mod_folder: str) -> List[Backup]:
     """Backups made by update_mods() for this folder, newest first."""
     root = backup_root(mod_folder)
     folder = os.path.normcase(os.path.abspath(mod_folder))
-    backups = []
+    backups: List[Backup] = []
     if not os.path.isdir(root):
         return backups
     for name in os.listdir(root):
         manifest = os.path.join(root, name, BACKUP_MANIFEST)
         try:
-            with open(manifest, "r", encoding="utf-8") as f:
+            with open(manifest, encoding="utf-8") as f:
                 data = json.load(f)
             if os.path.normcase(os.path.abspath(data["folder"])) != folder:
                 continue

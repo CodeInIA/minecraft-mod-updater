@@ -1,0 +1,31 @@
+# Settings of the code checkers run by the tests workflow (ruff and mypy).
+# The app itself is built with PyInstaller (mod_updater.spec), not from this file.
+
+[tool.ruff]
+line-length = 130
+target-version = "py310"
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "I"]
+ignore = [
+    "B008",    # calls in default arguments
+    "UP006", "UP007", "UP035", "UP045",  # keep typing.List/Optional: the code still supports Python 3.10 style
+]
+
+[tool.ruff.lint.per-file-ignores]
+"i18n.py" = ["E501"]           # translations are long by nature
+"tests/*" = ["F811", "E731"]   # pytest fixtures are imported and then used as parameters
+
+[tool.ruff.lint.isort]
+known-first-party = ["app_updater", "dialogs", "i18n", "launchers", "mod_icons", "mod_table", "mod_updater", "modpack",
+                     "sidebar", "ui_common", "updater_core"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["app_updater.py", "dialogs.py", "i18n.py", "launchers.py", "mod_icons.py", "mod_table.py",
+         "mod_updater.py", "modpack.py", "sidebar.py", "ui_common.py", "updater_core.py"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
