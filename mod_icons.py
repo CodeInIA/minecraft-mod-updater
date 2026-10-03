@@ -7,13 +7,14 @@ checkbox in a single image, because a ttk.Treeview row can only show one image.
 import hashlib
 import io
 import os
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import requests
 from PIL import Image, ImageDraw, ImageOps, ImageTk
 
-from updater_core import CONFIG_DIR, USER_AGENT
+from updater_core import CONFIG_DIR, JAR_ICON_PREFIX, USER_AGENT
 
 ICON_DIR = os.path.join(CONFIG_DIR, "icons")
 ICON = 24          # icon size in the table
@@ -65,16 +66,23 @@ class IconCache:
     def missing(self, urls: Iterable[str]) -> List[str]:
         return sorted({u for u in urls if u and self.get(u) is None})
 
+    def _fetch(self, url: str) -> bytes:
+        if url.startswith(JAR_ICON_PREFIX):  # "jar:<jar path>!<member>": the icon inside a mod jar
+            jar_path, _, member = url[len(JAR_ICON_PREFIX):].rpartition("!")
+            with zipfile.ZipFile(jar_path) as jar:
+                return jar.read(member)
+        response = self._session.get(url, timeout=15)
+        response.raise_for_status()
+        return response.content
+
     def _download_one(self, url: str) -> None:
         try:
-            response = self._session.get(url, timeout=15)
-            response.raise_for_status()
-            with Image.open(io.BytesIO(response.content)) as raw:
+            with Image.open(io.BytesIO(self._fetch(url))) as raw:
                 icon = self._prepare(raw)
             os.makedirs(ICON_DIR, exist_ok=True)
             icon.save(self._path(url), "PNG")
             self._icons[url] = icon
-        except (requests.RequestException, OSError, ValueError):
+        except (requests.RequestException, OSError, ValueError, KeyError, zipfile.BadZipFile):
             pass  # the placeholder icon is used instead
 
     def download(self, urls: Iterable[str]) -> None:

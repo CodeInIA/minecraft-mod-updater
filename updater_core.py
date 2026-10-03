@@ -10,8 +10,10 @@ new year-based ones like 26.3 or 26.4-snapshot-1.
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
+import zipfile
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -503,6 +505,148 @@ def _remember_mod_info(mods: Iterable[ModInfo]) -> None:
         _save_json(MOD_INFO_CACHE_FILE, cache)
 
 
+# ----- identifying files by the metadata inside the jar -------------------- #
+# Some files are not on Modrinth byte for byte (for example a version only
+# published on CurseForge), so their hash is unknown. Their mod ID usually is
+# the project's slug on Modrinth, which still tells which project they belong to.
+
+JAR_ICON_PREFIX = "jar:"  # icon_url of an icon inside a jar: "jar:<jar path>!<member>"
+NO_DATE = "1970-01-01T00:00:00Z"
+
+
+def _toml_value(text: str, key: str) -> str:
+    match = re.search(rf'^\s*{key}\s*=\s*["\']([^"\']*)["\']', text, re.MULTILINE)
+    return match.group(1).strip() if match else ""
+
+
+def read_jar_metadata(path: str) -> Dict[str, str]:
+    """Mod ID, name, version, icon and links declared inside a mod jar (Fabric, Quilt, (Neo)Forge)."""
+    meta = {"id": "", "name": "", "version": "", "icon": "", "links": ""}
+    try:
+        with zipfile.ZipFile(path) as jar:
+            names = set(jar.namelist())
+
+            def read(member: str) -> str:
+                return jar.read(member).decode("utf-8", "replace")
+
+            if "fabric.mod.json" in names or "quilt.mod.json" in names:
+                if "fabric.mod.json" in names:
+                    info = extra = json.loads(read("fabric.mod.json"), strict=False)
+                else:
+                    info = json.loads(read("quilt.mod.json"), strict=False).get("quilt_loader", {})
+                    extra = info.get("metadata", {})
+                icon = extra.get("icon") or ""
+                if isinstance(icon, dict):  # {"16": "a.png", "128": "b.png"}: take the largest
+                    sizes = sorted(icon, key=lambda k: int(k) if str(k).isdigit() else 0)
+                    icon = icon[sizes[-1]] if sizes else ""
+                contact = extra.get("contact") or {}
+                meta.update(id=str(info.get("id") or ""), name=str(extra.get("name") or ""),
+                            version=str(info.get("version") or ""), icon=str(icon).lstrip("/"),
+                            links=" ".join(str(v) for v in contact.values()) if isinstance(contact, dict) else "")
+            else:
+                toml = next((m for m in ("META-INF/neoforge.mods.toml", "META-INF/mods.toml") if m in names), None)
+                if toml:
+                    text = read(toml)
+                    meta.update(id=_toml_value(text, "modId"), name=_toml_value(text, "displayName"),
+                                version=_toml_value(text, "version"), icon=_toml_value(text, "logoFile"),
+                                links=" ".join(_toml_value(text, k) for k in ("displayURL", "issueTrackerURL")))
+            if "${" in meta["version"]:
+                found = None
+                if "META-INF/MANIFEST.MF" in names:
+                    found = re.search(r"^Implementation-Version:\s*(\S+)", read("META-INF/MANIFEST.MF"), re.MULTILINE)
+                meta["version"] = found.group(1) if found else ""
+            if meta["icon"] and meta["icon"] not in names:
+                meta["icon"] = ""
+    except (OSError, zipfile.BadZipFile, ValueError, AttributeError, KeyError, TypeError):
+        pass
+    return meta
+
+
+def jar_icon_url(path: str, meta: Optional[Dict[str, str]] = None) -> str:
+    meta = meta if meta is not None else read_jar_metadata(path)
+    return f"{JAR_ICON_PREFIX}{os.path.abspath(path)}!{meta['icon']}" if meta.get("icon") else ""
+
+
+def _simple_name(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _version_key(number: str) -> Tuple[int, ...]:
+    """Numeric part of a version number ("26.3.4+fabric" -> (26, 3, 4)); empty if there is none."""
+    parts = []
+    for piece in re.split(r"[.\-]", number.split("+")[0].lstrip("vV")):
+        if not piece.isdigit():
+            break
+        parts.append(int(piece))
+    return tuple(parts)
+
+
+def _projects_for_metadata(client: "ModrinthClient", metas: Dict[str, Dict[str, str]]) -> Dict[str, Dict]:
+    """Modrinth project of each file (by hash) whose mod ID is a project slug with the same name."""
+    ids = sorted({m["id"].lower() for m in metas.values() if m.get("id")})
+    if not ids:
+        return {}
+    try:
+        projects = list(client.projects(ids).values())
+    except ModrinthError:
+        return {}
+    by_slug = {(p.get("slug") or "").lower(): p for p in projects}
+    found = {}
+    for h, meta in metas.items():
+        project = by_slug.get(meta.get("id", "").lower())
+        if not project:
+            continue
+        title = _simple_name(project.get("title", ""))
+        names = {_simple_name(meta.get("name", "")), _simple_name(meta.get("id", ""))} - {""}
+        linked = f"modrinth.com/mod/{project.get('slug', '')}".lower() in meta.get("links", "").lower()
+        if linked or title in names:
+            found[h] = project
+    return found
+
+
+def _version_from_metadata(project: Dict, meta: Dict[str, str], candidates: List[Dict]) -> Dict:
+    """Version data for a jar Modrinth does not know, from what the jar declares.
+
+    Uses the Modrinth version with the same number when there is one; otherwise
+    dates the file like the newest Modrinth version that is not newer than it,
+    so changelogs start after it.
+    """
+    number = meta.get("version", "")
+    for v in candidates:
+        if number and v.get("version_number") == number:
+            return v
+    mine = _version_key(number)
+    older = [v for v in candidates if mine and _version_key(v.get("version_number", "")) <= mine]
+    date = max((v.get("date_published", "") for v in older), default="") or NO_DATE
+    return {"id": "", "project_id": project["id"], "version_number": number or "?",
+            "date_published": date, "game_versions": [], "loaders": [], "files": [], "from_metadata": True}
+
+
+def _status_from_metadata(mod: ModInfo, meta: Dict[str, str]) -> str:
+    if mod.latest is None:
+        return STATUS_NO_COMPATIBLE
+    if mod.latest is mod.current:
+        return STATUS_UP_TO_DATE
+    mine, theirs = _version_key(meta.get("version", "")), _version_key(mod.latest.get("version_number", ""))
+    if mine and theirs:
+        return STATUS_UP_TO_DATE if theirs <= mine else STATUS_UPDATE
+    return STATUS_UP_TO_DATE if mod.latest.get("version_number") == meta.get("version") else STATUS_UPDATE
+
+
+def _identify_by_metadata(client: "ModrinthClient", mods: Dict[str, ModInfo]) -> Dict[str, Tuple[Dict, Dict]]:
+    """(project, jar metadata) of each unknown jar (by hash) found on Modrinth by its mod ID."""
+    metas = {h: read_jar_metadata(m.path) for h, m in mods.items() if ".jar" in m.filename.lower()}
+    projects = _projects_for_metadata(client, metas)
+    return {h: (project, metas[h]) for h, project in projects.items()}
+
+
+def _fill_icons_from_jars(mods: Iterable[ModInfo]) -> None:
+    """Use the icon inside the jar for mods without an icon on Modrinth (or not on Modrinth)."""
+    for mod in mods:
+        if not mod.icon_url and ".jar" in mod.filename.lower() and os.path.isfile(mod.path):
+            mod.icon_url = jar_icon_url(mod.path)
+
+
 def list_local_mods(mod_folder: str, content: str = CONTENT_MODS) -> List[ModInfo]:
     """The files of a profile folder, without going online.
 
@@ -521,6 +665,7 @@ def list_local_mods(mod_folder: str, content: str = CONTENT_MODS) -> List[ModInf
             mod.page_url = info.get("page_url", "")
             mod.current = {"version_number": info.get("version_number", "?"),
                            "project_id": info.get("project_id", "")}
+    _fill_icons_from_jars(mods)
     return sorted(mods, key=lambda m: m.display_name.lower())
 
 
@@ -548,6 +693,14 @@ def identify_local_mods(client: ModrinthClient, mods: List[ModInfo]) -> List[Mod
         mod.title = project.get("title", "")
         mod.icon_url = project.get("icon_url") or ""
         mod.page_url = modrinth_page_url(project, version.get("project_id", ""))
+    still_unknown = {h: m for h, m in unknown.items() if not m.current}
+    for h, (project, meta) in _identify_by_metadata(client, still_unknown).items():
+        mod = still_unknown[h]
+        mod.current = _version_from_metadata(project, meta, [])
+        mod.title = project.get("title", "")
+        mod.icon_url = project.get("icon_url") or ""
+        mod.page_url = modrinth_page_url(project, project["id"])
+    _fill_icons_from_jars(unknown.values())
     _remember_mod_info(unknown.values())
     return sorted(mods, key=lambda m: m.display_name.lower())
 
@@ -693,6 +846,30 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
                 mod.status = STATUS_IGNORED
             if project.get("server_side" if server else "client_side") == "unsupported":
                 mod.side_warning = SIDE_CLIENT_ONLY if server else SIDE_SERVER_ONLY
+
+    unknown = {h: m for h, m in by_hash.items() if m.current is None}
+    if content == CONTENT_MODS and unknown:
+        for h, (project, meta) in _identify_by_metadata(client, unknown).items():
+            mod = unknown[h]
+            candidates: List[Dict] = []
+            if result.game_version and loaders:
+                try:
+                    candidates = client.project_versions(project["id"], loaders, [result.game_version])
+                except ModrinthError:
+                    pass
+            stable = [v for v in candidates if v.get("version_type") == "release"]
+            picked = candidates if allow_beta else (stable or candidates)
+            mod.current = _version_from_metadata(project, meta, candidates)
+            mod.latest = picked[0] if picked else None
+            mod.status = _status_from_metadata(mod, meta)
+            mod.title = project.get("title", "")
+            mod.icon_url = project.get("icon_url") or ""
+            mod.page_url = modrinth_page_url(project, project["id"])
+            if mod.project_id in ignored:
+                mod.status = STATUS_IGNORED
+            if project.get("server_side" if server else "client_side") == "unsupported":
+                mod.side_warning = SIDE_CLIENT_ONLY if server else SIDE_SERVER_ONLY
+    _fill_icons_from_jars(by_hash.values())
 
     if content == CONTENT_MODS and result.game_version and loaders:
         progress(0.92, t("prog_dependencies"))
