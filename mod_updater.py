@@ -726,8 +726,11 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
             self.status_label.configure(text=t("detect_failed"))
         else:
             pending = len(self.checked)
-            self.status_label.configure(text=t("updates_available", n=pending) if pending
-                                        else t("all_up_to_date"))
+            text = t("updates_available", n=pending) if pending else t("all_up_to_date")
+            problems = sum(1 for m in mods if m.has_problems)
+            if problems:
+                text += "  " + t("problems_found", n=problems)
+            self.status_label.configure(text=text)
 
     def update_selected(self):
         profile = self.current_profile()

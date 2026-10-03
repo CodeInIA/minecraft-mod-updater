@@ -246,3 +246,22 @@ def test_installing_an_older_version(tmp_path):
     sodium.latest = old
     core.update_mods(client, [sodium], str(mods_dir), False, NO_PROGRESS)
     assert (mods_dir / "sodium-0.5.jar").exists() and not (mods_dir / "sodium-old.jar").exists()
+
+
+def test_duplicated_and_incompatible_mods_are_reported(tmp_path):
+    def installed(name, project, deps=(), disabled=False):
+        path = tmp_path / (name + (".disabled" if disabled else ""))
+        path.write_bytes(name.encode())
+        return core.ModInfo(path=str(path), title=project.title(), status=core.STATUS_UP_TO_DATE,
+                            current={"id": name, "project_id": project, "dependencies": list(deps)})
+    jade_old, jade_new = installed("jade-1.jar", "jade"), installed("jade-2.jar", "jade")
+    jade_backup = installed("jade-0.jar", "jade", disabled=True)
+    optifine = installed("optifabric.jar", "optifabric")
+    sodium = installed("sodium.jar", "sodium", deps=[{"project_id": "optifabric", "dependency_type": "incompatible"}])
+    missing = core.ModInfo(path=str(tmp_path / "api.jar"), status=core.STATUS_MISSING_DEP, project_hint="fabric-api")
+    mods = [jade_old, jade_new, jade_backup, optifine, sodium, missing]
+    core.find_problems(mods)
+    assert jade_old.other_versions == ["jade-2.jar"] and jade_new.other_versions == ["jade-1.jar"]
+    assert jade_backup.other_versions == []  # a disabled copy is not a problem
+    assert sodium.incompatible_with == ["Optifabric"] and optifine.incompatible_with == ["Sodium"]
+    assert not missing.has_problems

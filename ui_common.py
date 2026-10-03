@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tkinter as tk
 from tkinter import font as tkfont
-from typing import Union
+from typing import List, Union
 
 import customtkinter as ctk
 
@@ -57,11 +57,25 @@ def status_label(status: str) -> str:
 
 
 def row_status(mod: core.ModInfo) -> str:
-    """Status column text, with the client/server warning when there is one."""
+    """Status column text, with the warnings of the mod (client/server, duplicated, incompatible)."""
     text = status_label(mod.status)
-    if mod.side_warning:
-        text += "  ·  ⚠ " + t(f"side_{mod.side_warning}")
+    for warning in mod_warnings(mod):
+        text += "  ·  ⚠ " + warning
     return text
+
+
+def mod_warnings(mod: core.ModInfo, detailed: bool = False) -> List[str]:
+    """Short warnings for the status column, or full sentences for its tooltip."""
+    warnings = []
+    if mod.side_warning:
+        warnings.append(t(f"side_{mod.side_warning}"))
+    if mod.other_versions:
+        warnings.append(t("problem_duplicate_long", files=", ".join(mod.other_versions)) if detailed
+                        else t("problem_duplicate"))
+    if mod.incompatible_with:
+        warnings.append(t("problem_incompatible_long", mods=", ".join(mod.incompatible_with)) if detailed
+                        else t("problem_incompatible"))
+    return warnings
 
 
 def content_label(content: str) -> str:

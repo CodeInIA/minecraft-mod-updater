@@ -217,3 +217,14 @@ def test_choose_a_version_and_pin_it(app, tmp_path, monkeypatch):
     app.last_scan = scan_with_dependency(tmp_path)
     app.unpin(sodium)
     assert app.current_profile()["pinned"] == {}
+
+
+def test_problems_are_shown_in_the_status_column(app, tmp_path):
+    from ui_common import mod_warnings, row_status
+    mod = core.ModInfo(path=str(tmp_path / "a.jar"), title="A", status=core.STATUS_UP_TO_DATE,
+                       other_versions=["a-old.jar"], incompatible_with=["B"])
+    assert row_status(mod).count("⚠") == 2
+    assert "a-old.jar" in mod_warnings(mod, detailed=True)[0] and "B" in mod_warnings(mod, detailed=True)[1]
+    app.mods = [mod]
+    app._update_summary()
+    assert "Problems: 1" in app.summary_label.cget("text")

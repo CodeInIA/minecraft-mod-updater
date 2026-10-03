@@ -419,6 +419,12 @@ class ModInfo:
     required_by: List[str] = field(default_factory=list)  # for missing dependencies
     side_warning: str = ""                                 # SIDE_CLIENT_ONLY / SIDE_SERVER_ONLY
     project_hint: str = ""                                 # project id when there is no version data
+    other_versions: List[str] = field(default_factory=list)  # other files of the same project
+    incompatible_with: List[str] = field(default_factory=list)  # installed mods it does not work with
+
+    @property
+    def has_problems(self) -> bool:
+        return bool(self.other_versions or self.incompatible_with)
 
     @property
     def project_id(self) -> str:
@@ -733,6 +739,7 @@ def list_local_mods(mod_folder: str, content: str = CONTENT_MODS) -> List[ModInf
             mod.current = {"version_number": info.get("version_number", "?"),
                            "project_id": info.get("project_id", "")}
     _fill_icons_from_jars(mods)
+    find_problems(mods)
     return sorted(mods, key=lambda m: m.display_name.lower())
 
 
@@ -768,6 +775,7 @@ def identify_local_mods(client: ModrinthClient, mods: List[ModInfo]) -> List[Mod
         mod.icon_url = project.get("icon_url") or ""
         mod.page_url = modrinth_page_url(project, project["id"])
     _fill_icons_from_jars(unknown.values())
+    find_problems(mods)
     _remember_mod_info(unknown.values())
     return sorted(mods, key=lambda m: m.display_name.lower())
 
@@ -952,6 +960,7 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
         except ModrinthError:
             pass  # dependencies are a bonus; the scan itself succeeded
 
+    find_problems(mods)
     _remember_mod_info(by_hash.values())
     log.info("scanned %s (%s, %s %s): %s", mod_folder, content, result.game_version, result.loader,
              dict(Counter(m.status for m in mods)))
@@ -959,6 +968,38 @@ def scan_mods(client: ModrinthClient, mod_folder: str, game_version: str, loader
     first = (STATUS_MISSING_DEP, STATUS_UPDATE)
     mods.sort(key=lambda m: (m.status not in first, m.status != STATUS_MISSING_DEP, m.display_name.lower()))
     return result
+
+
+def find_problems(mods: List[ModInfo]) -> None:
+    """Mark mods installed more than once (different files of one project) and incompatible mods.
+
+    Incompatibilities are the ones the authors declare on Modrinth, for the
+    installed version and for the update that would be installed.
+    """
+    installed = [m for m in mods if m.project_id and m.status != STATUS_MISSING_DEP and os.path.exists(m.path)]
+    by_project: Dict[str, List[ModInfo]] = {}
+    for mod in installed:
+        mod.other_versions, mod.incompatible_with = [], []
+        if not mod.disabled:  # a disabled copy is a deliberate backup, not a problem
+            by_project.setdefault(mod.project_id, []).append(mod)
+    for copies in by_project.values():
+        if len(copies) > 1:
+            for mod in copies:
+                mod.other_versions = sorted(m.filename for m in copies if m is not mod)
+
+    enabled = {m.project_id: m for m in installed if not m.disabled}
+    version_ids = {(m.current or {}).get("id"): m for m in enabled.values() if (m.current or {}).get("id")}
+    for mod in enabled.values():
+        declared = []
+        for version in (mod.current, mod.latest if mod.status == STATUS_UPDATE else None):
+            declared += [d for d in (version or {}).get("dependencies") or []
+                         if d.get("dependency_type") == "incompatible"]
+        for dep in declared:
+            other = enabled.get(dep.get("project_id") or "") or version_ids.get(dep.get("version_id") or "")
+            if other is not None and other is not mod:
+                for a, b in ((mod, other), (other, mod)):
+                    if b.display_name not in a.incompatible_with:
+                        a.incompatible_with.append(b.display_name)
 
 
 def find_missing_dependencies(client: ModrinthClient, mods: List[ModInfo], mod_folder: str,

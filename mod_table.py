@@ -14,7 +14,18 @@ import updater_core as core
 from dialogs import ChangelogDialog, VersionPickerDialog
 from i18n import t
 from mod_icons import IconCache
-from ui_common import ACCENT, SIDEBAR_BG, STATUS_ORDER, TREE_ITEM_PADDING, is_dark, open_folder, pick, row_status, ui_font_family
+from ui_common import (
+    ACCENT,
+    SIDEBAR_BG,
+    STATUS_ORDER,
+    TREE_ITEM_PADDING,
+    is_dark,
+    mod_warnings,
+    open_folder,
+    pick,
+    row_status,
+    ui_font_family,
+)
 
 if TYPE_CHECKING:
     from mod_updater import App
@@ -119,6 +130,9 @@ class ModTableMixin:
             parts.append(t("sum_pinned", n=counts[core.STATUS_PINNED]))
         if counts[core.STATUS_IGNORED]:
             parts.append(t("sum_ignored", n=counts[core.STATUS_IGNORED]))
+        problems = sum(1 for m in self.mods if m.has_problems)
+        if problems:
+            parts.append(t("sum_problems", n=problems))
         sides = sum(1 for m in self.mods if m.side_warning)
         if sides:
             parts.append(t("sum_side", n=sides))
@@ -274,28 +288,34 @@ class ModTableMixin:
         self.sort_key = (column, not reverse if key == column else False)
         self._fill_tree()
 
-    def _set_link_hover(self, event):
-        """Hand cursor and an "Open in Modrinth" tooltip while the mouse is over a mod name."""
+    def _set_link_hover(self, event, text: Optional[str] = None):
+        """Tooltip under the mouse: "Open in Modrinth" (with a hand cursor) over a mod name, or `text`."""
         if event is None:
             self.tree.configure(cursor="")
             if self._tooltip and self._tooltip.winfo_exists():
                 self._tooltip.withdraw()
             return
         if not self._tooltip or not self._tooltip.winfo_exists():
-            self._tooltip = tk.Toplevel(self)
+            self._tooltip = tk.Toplevel(cast("App", self))
             self._tooltip.overrideredirect(True)
             self._tooltip.attributes("-topmost", True)
             self._tooltip_label = tk.Label(self._tooltip, padx=8, pady=3, font=(ui_font_family(), 9))
             self._tooltip_label.pack()
-        self._tooltip_label.configure(text=t("open_in_modrinth") + "  ↗", bg=pick(SIDEBAR_BG),
-                                      fg="#E8EAED" if is_dark() else "#1F2328")
+        self._tooltip_label.configure(text=text or t("open_in_modrinth") + "  ↗", bg=pick(SIDEBAR_BG),
+                                      fg="#E8EAED" if is_dark() else "#1F2328", justify="left", wraplength=420)
         self._tooltip.geometry(f"+{event.x_root + 14}+{event.y_root + 18}")
         self._tooltip.deiconify()
-        self.tree.configure(cursor="hand2")
+        self.tree.configure(cursor="" if text else "hand2")
 
     def _on_tree_motion(self, event):
         mod, area = self._hit_area(event)
-        self._set_link_hover(event if area == "link" and mod.page_url else None)
+        warnings = mod_warnings(mod, detailed=True) if mod and area == "row" else []
+        if area == "link" and mod.page_url:
+            self._set_link_hover(event)
+        elif warnings and self.tree.identify_column(event.x) == "#3":  # the status column
+            self._set_link_hover(event, "\n".join("⚠ " + w for w in warnings))
+        else:
+            self._set_link_hover(None)
         row = self.tree.identify_row(event.y)
         previous = getattr(self, "_hover_row", None)
         if row == previous:
