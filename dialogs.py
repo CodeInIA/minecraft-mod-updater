@@ -11,6 +11,7 @@ import customtkinter as ctk
 import app_updater
 import i18n
 import launchers
+import modpack
 import updater_core as core
 from i18n import t
 from ui_common import (
@@ -500,6 +501,92 @@ class SearchDialog(Dialog):
         self.app.install_projects(row["hit"], self.game_version, self.loaders, done, failed, parent=self)
 
 
+class CompareDialog(Dialog):
+    """What is different between the current profile and another one (for example client and server)."""
+
+    def __init__(self, app: "App"):
+        super().__init__(app, t("compare_title"), 680, 600)
+        self.app = app
+        self.profile = app.current_profile() or {}
+        content = self.profile.get("content", core.CONTENT_MODS)
+        self.others = {p["name"]: p for p in app.config_data["profiles"]
+                       if p is not self.profile and p.get("content", core.CONTENT_MODS) == content}
+        ctk.CTkLabel(self, text=t("compare_title"), font=ctk.CTkFont(size=20, weight="bold"),
+                     anchor="w").pack(fill="x", padx=22, pady=(18, 2))
+        ctk.CTkLabel(self, text=t("compare_hint"), text_color=MUTED, wraplength=630, justify="left",
+                     anchor="w").pack(fill="x", padx=22)
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=22, pady=(12, 0))
+        ctk.CTkLabel(row, text=f"{self.profile.get('name', '')}   ⟷").pack(side="left", padx=(0, 8))
+        names = list(self.others)
+        self.other_var = tk.StringVar(value=names[0] if names else "")
+        ctk.CTkOptionMenu(row, variable=self.other_var, values=names or [""], width=220,
+                          state="normal" if names else "disabled").pack(side="left")
+        self.go_btn = ctk.CTkButton(row, text=t("compare_go"), width=110, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                    state="normal" if names else "disabled", command=self._compare)
+        self.go_btn.pack(side="left", padx=8)
+        self.list = ctk.CTkScrollableFrame(self, fg_color=CARD_BG, corner_radius=10)
+        self.list.pack(fill="both", expand=True, padx=22, pady=12)
+        ctk.CTkButton(self, text=t("close"), width=110, command=self.destroy).pack(anchor="e", padx=22, pady=(0, 18))
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self._message(t("compare_pick") if names else t("compare_no_others"))
+
+    def _message(self, text: str):
+        for child in self.list.winfo_children():
+            child.destroy()
+        ctk.CTkLabel(self.list, text=text, text_color=MUTED, wraplength=600, justify="left").pack(
+            padx=12, pady=16, anchor="w")
+
+    def _compare(self):
+        other = self.others.get(self.other_var.get())
+        if not other:
+            return
+        self.go_btn.configure(state="disabled")
+        self._message(t("compare_working"))
+        content = self.profile.get("content", core.CONTENT_MODS)
+        self.app.run_task(lambda: modpack.compare_folders(self.app.client, self.profile["path"], other["path"],
+                                                          content),
+                          lambda diffs: self._show(diffs, other["name"]), self._failed)
+
+    def _failed(self, err: Exception):
+        if self.winfo_exists():
+            self.go_btn.configure(state="normal")
+            self._message(str(err))
+
+    def _show(self, diffs: List[modpack.Difference], other_name: str):
+        if not self.winfo_exists():
+            return
+        self.go_btn.configure(state="normal")
+        for child in self.list.winfo_children():
+            child.destroy()
+        mine = self.profile.get("name", "")
+        groups = [(modpack.DIFFERENT, t("compare_different")), (modpack.ONLY_A, t("compare_only", name=mine)),
+                  (modpack.ONLY_B, t("compare_only", name=other_name))]
+        shown = False
+        for kind, title in groups:
+            items = [d for d in diffs if d.kind == kind]
+            if not items:
+                continue
+            shown = True
+            ctk.CTkLabel(self.list, text=f"{title}  ({len(items)})", font=ctk.CTkFont(size=14, weight="bold"),
+                         anchor="w").pack(fill="x", padx=10, pady=(10, 2))
+            for d in items:
+                line = ctk.CTkFrame(self.list, fg_color="transparent")
+                line.pack(fill="x", padx=10, pady=1)
+                ctk.CTkLabel(line, text=d.name, anchor="w").pack(side="left")
+                detail = (f"{d.version_a}  ⟷  {d.version_b}" if kind == modpack.DIFFERENT
+                          else (d.version_a or d.version_b))
+                if d.side:
+                    detail = t(f"compare_{d.side}_only") + "  ·  " + detail
+                ctk.CTkLabel(line, text=detail, text_color=MUTED, anchor="e").pack(side="right")
+        same = sum(1 for d in diffs if d.kind == modpack.SAME)
+        if not shown:
+            self._message(t("compare_identical"))
+        elif same:
+            ctk.CTkLabel(self.list, text=t("compare_same", n=same), text_color=MUTED, anchor="w").pack(
+                fill="x", padx=10, pady=(12, 4))
+
+
 class MigrationDialog(Dialog):
     """Check which mods are ready for another Minecraft version and move the profile to it."""
 
@@ -704,6 +791,8 @@ class ImportDialog(Dialog):
         self.import_btn.pack(side="right")
         ctk.CTkButton(buttons, text=t("cancel"), fg_color="transparent", border_width=1,
                       text_color=("gray10", "gray90"), command=self.destroy).pack(side="right", padx=8)
+        ctk.CTkButton(buttons, text=t("import_mrpack_btn"), fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"), command=self._import_mrpack).pack(side="left")
         self.bind("<Escape>", lambda _e: self.destroy())
 
         existing = {os.path.normcase(os.path.abspath(p["path"])) for p in app.config_data["profiles"]}
@@ -728,6 +817,21 @@ class ImportDialog(Dialog):
             if not added:
                 self.choices.append((var, inst))
         self._refresh_button()
+
+    def _import_mrpack(self):
+        path = filedialog.askopenfilename(parent=self, title=t("import_mrpack_btn"),
+                                          filetypes=[("Modrinth modpack", "*.mrpack"), ("*", "*")])
+        if not path:
+            return
+        game_dir = filedialog.askdirectory(parent=self, title=t("mrpack_pick_folder"), mustexist=False)
+        if not game_dir:
+            return
+        game_dir = os.path.normpath(game_dir)
+        if os.path.isdir(game_dir) and os.listdir(game_dir) and not messagebox.askyesno(
+                t("import_title"), t("mrpack_folder_not_empty", path=game_dir), icon="warning", parent=self):
+            return
+        self.destroy()
+        self.app.import_mrpack(path, game_dir)
 
     def _refresh_button(self):
         n = sum(1 for var, _inst in self.choices if var.get())

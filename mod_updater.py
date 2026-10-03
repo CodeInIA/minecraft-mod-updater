@@ -7,18 +7,20 @@ import sys
 import threading
 import tkinter as tk
 import webbrowser
+from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
-from tkinter import messagebox, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
 
 import app_updater
 import i18n
+import modpack
 import updater_core as core
 from dialogs import (  # noqa: F401
     BackupsDialog,
     ChangelogDialog,
+    CompareDialog,
     ImportDialog,
     MigrationDialog,
     ProfileDialog,
@@ -144,7 +146,7 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
         state = "disabled" if busy else "normal"
         for widget in (self.check_btn, self.add_btn, self.import_btn, self.edit_btn, self.delete_btn,
                        self.backups_btn, self.version_box, self.loader_menu, self.settings_btn,
-                       self.select_all_box, self.migrate_btn, self.search_btn):
+                       self.select_all_box, self.migrate_btn, self.search_btn, self.more_btn):
             widget.configure(state=state)
         self._apply_content_state()
         if busy:
@@ -348,6 +350,9 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
                                         fg_color="transparent", border_width=1, border_color=DANGER,
                                         text_color=DANGER, hover_color=("#F6DADA", "#3A2222"), width=90)
         self.delete_btn.pack(side="left", padx=(4, 0))
+        self.more_btn = ctk.CTkButton(actions, text="⋯", width=40, command=self._show_more_menu,
+                                      **{k: v for k, v in ghost.items() if k != "width"})
+        self.more_btn.pack(side="left", padx=(8, 0))
 
         # Target bar: Minecraft version, loader, check button
         bar = ctk.CTkFrame(main, fg_color=CARD_BG, corner_radius=12)
@@ -538,18 +543,11 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
         self.wait_window(dialog)
         if not dialog.result:
             return
-        names = {p["name"] for p in self.config_data["profiles"]}
         added = 0
         for inst in dialog.result:
             if len(self.config_data["profiles"]) >= core.MAX_PROFILES:
                 break
-            base = inst.name[:core.MAX_PROFILE_NAME]
-            name, n = base, 2
-            while name in names:  # keep names unique
-                suffix = f" ({n})"
-                name = base[:core.MAX_PROFILE_NAME - len(suffix)] + suffix
-                n += 1
-            names.add(name)
+            name = self._unique_profile_name(inst.name)
             self.config_data["profiles"].append({
                 "name": name, "path": inst.mods_path, "game_version": core.AUTO, "loader": core.AUTO,
                 "color": core.next_profile_color(self.config_data["profiles"]), "content": core.CONTENT_MODS,
@@ -560,6 +558,94 @@ class App(ProfileListMixin, ModTableMixin, ctk.CTk):
             core.save_config(self.config_data)
             self.refresh_profiles()
             self.show_local_mods(status=t("import_done", n=added))
+
+    def _unique_profile_name(self, wanted: str) -> str:
+        names = {p["name"] for p in self.config_data["profiles"]}
+        base = wanted.strip()[:core.MAX_PROFILE_NAME] or "pack"
+        name, n = base, 2
+        while name in names:
+            suffix = f" ({n})"
+            name = base[:core.MAX_PROFILE_NAME - len(suffix)] + suffix
+            n += 1
+        return name
+
+    # ----- modpacks and comparing ------------------------------------------- #
+
+    def _show_more_menu(self):
+        if not self.current_profile() or self.busy:
+            return
+        menu = tk.Menu(self, tearoff=False)
+        menu.add_command(label=t("menu_export_mrpack"), command=self.export_profile)
+        menu.add_command(label=t("menu_compare"), command=lambda: CompareDialog(self))
+        x, y = self.more_btn.winfo_rootx(), self.more_btn.winfo_rooty() + self.more_btn.winfo_height()
+        menu.tk_popup(x, y)
+
+    def _profile_target(self, profile: Dict) -> Tuple[str, Optional[str]]:
+        """Minecraft version and loader of a profile: from the last check, the profile, or detected."""
+        scan = self.last_scan
+        version, loader = profile.get("game_version", core.AUTO), profile.get("loader", core.AUTO)
+        if scan and scan.game_version:
+            version, loader = scan.game_version, scan.loader or loader
+        if version == core.AUTO or loader == core.AUTO:
+            found = core.detect_target(self.client, profile["path"], profile.get("content", core.CONTENT_MODS))
+            version = found.get("game_version", "") if version == core.AUTO else version
+            loader = found.get("loader") if loader == core.AUTO else loader
+        if not version:
+            raise core.ModrinthError(t("search_target_unknown"))
+        return version, loader
+
+    def export_profile(self):
+        """Save the current profile as a Modrinth modpack (.mrpack)."""
+        profile = self.current_profile()
+        if not profile or self.busy:
+            return
+        destination = filedialog.asksaveasfilename(
+            parent=self, title=t("menu_export_mrpack"), defaultextension=".mrpack",
+            initialfile=f"{profile['name']}.mrpack", filetypes=[("Modrinth modpack", "*.mrpack")])
+        if not destination:
+            return
+        self._set_busy(True)
+        self.status_label.configure(text=t("mrpack_exporting"))
+
+        def work():
+            version, loader = self._profile_target(profile)
+            return modpack.export_mrpack(self.client, profile["path"], profile.get("content", core.CONTENT_MODS),
+                                         version, loader, profile["name"], destination)
+
+        def done(counts: Dict[str, int]):
+            self._set_busy(False)
+            self.status_label.configure(text=t("export_done", n=counts["downloads"], m=counts["overrides"]))
+
+        self.run_task(work, done)
+
+    def import_mrpack(self, path: str, game_dir: str):
+        """Install a Modrinth modpack into a folder and add it as a new profile."""
+        if self.busy or len(self.config_data["profiles"]) >= core.MAX_PROFILES:
+            return
+        try:
+            pack = modpack.read_mrpack(path)
+        except modpack.ModpackError as e:
+            messagebox.showerror(core.APP_NAME, str(e), parent=self)
+            return
+        self._set_busy(True)
+
+        def done(_result):
+            self._set_busy(False)
+            name = self._unique_profile_name(pack.name)
+            self.config_data["profiles"].append({
+                "name": name, "path": os.path.join(game_dir, "mods"), "game_version": pack.game_version,
+                "loader": pack.loader or core.AUTO, "color": core.next_profile_color(self.config_data["profiles"]),
+                "content": core.CONTENT_MODS, "server": False, "ignored": [], "pinned": {}})
+            self.config_data["current_profile"] = name
+            core.save_config(self.config_data)
+            self.refresh_profiles()
+            self.show_local_mods()
+            loader = (" " + t("mrpack_with_loader", loader=pack.loader, version=pack.loader_version or "?")
+                      if pack.loader else "")
+            messagebox.showinfo(core.APP_NAME, t("mrpack_done", name=pack.name, path=game_dir,
+                                                 version=pack.game_version, loader=loader), parent=self)
+
+        self.run_task(lambda: modpack.install_mrpack(self.client, pack, game_dir, self._progress_cb), done)
 
     def show_backups(self):
         if self.current_profile() and not self.busy:

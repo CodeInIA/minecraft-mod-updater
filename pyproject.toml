@@ -18,13 +18,13 @@ ignore = [
 "tests/*" = ["F811", "E731"]   # pytest fixtures are imported and then used as parameters
 
 [tool.ruff.lint.isort]
-known-first-party = ["app_updater", "dialogs", "i18n", "launchers", "mod_icons", "mod_table", "mod_updater",
+known-first-party = ["app_updater", "dialogs", "i18n", "launchers", "mod_icons", "mod_table", "mod_updater", "modpack",
                      "sidebar", "ui_common", "updater_core"]
 
 [tool.mypy]
 python_version = "3.10"
 files = ["app_updater.py", "dialogs.py", "i18n.py", "launchers.py", "mod_icons.py", "mod_table.py",
-         "mod_updater.py", "sidebar.py", "ui_common.py", "updater_core.py"]
+         "mod_updater.py", "modpack.py", "sidebar.py", "ui_common.py", "updater_core.py"]
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true

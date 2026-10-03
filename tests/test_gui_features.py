@@ -300,3 +300,42 @@ def test_search_dialog_lists_and_installs(app, tmp_path, monkeypatch):
     wait(lambda: not app.busy and "✔" in dialog.rows["modmenu"]["button"].cget("text"))
     assert "✔" in dialog.rows["modmenu"]["button"].cget("text")
     dialog.destroy()
+
+
+def test_compare_dialog_and_export(app, tmp_path, monkeypatch):
+    import time
+
+    import mod_updater
+    import modpack
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    app.config_data["profiles"] = [
+        {"name": "client", "path": str(a), "game_version": "26.3", "loader": "fabric", "ignored": [], "pinned": {}},
+        {"name": "server", "path": str(b), "game_version": "26.3", "loader": "fabric", "ignored": [], "pinned": {}}]
+    app.config_data["current_profile"] = "client"
+    app.refresh_profiles()
+    monkeypatch.setattr(modpack, "compare_folders", lambda *a: [
+        modpack.Difference("Sodium", modpack.ONLY_A, version_a="0.9", side="client"),
+        modpack.Difference("API", modpack.DIFFERENT, "2", "1"), modpack.Difference("Lib", modpack.SAME, "1", "1")])
+    dialog = mod_updater.CompareDialog(app)
+    assert list(dialog.others) == ["server"]
+    dialog._compare()
+
+    def wait(condition):
+        end = time.time() + 5
+        while time.time() < end and not condition():
+            app.update()
+            time.sleep(0.02)
+    wait(lambda: dialog.go_btn.cget("state") == "normal")
+    texts = [w.cget("text") for w in dialog.list.winfo_children() if isinstance(w, mod_updater.ctk.CTkLabel)]
+    assert any("Different versions" in x for x in texts) and any("Only in client" in x for x in texts)
+    assert any("The same in both: 1" in x for x in texts)
+    dialog.destroy()
+
+    out = tmp_path / "client.mrpack"
+    monkeypatch.setattr(mod_updater.filedialog, "asksaveasfilename", lambda **k: str(out))
+    monkeypatch.setattr(modpack, "export_mrpack", lambda *a: {"downloads": 3, "overrides": 1})
+    app.export_profile()
+    wait(lambda: not app.busy)
+    assert "3" in app.status_label.cget("text")

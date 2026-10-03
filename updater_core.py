@@ -66,6 +66,7 @@ DEFAULT_MINECRAFT_MODS = os.path.join(MINECRAFT_DIR, "mods")
 LOG_FILE = os.path.join(CONFIG_DIR, "mod_updater.log")
 
 log = logging.getLogger("mod_updater")
+log.addHandler(logging.NullHandler())  # silent until the app calls setup_logging()
 
 MODRINTH_API_URL = "https://api.modrinth.com/v2"
 USER_AGENT = f"CodeInIA/minecraft-mod-updater/{APP_VERSION} ({REPO_URL})"
